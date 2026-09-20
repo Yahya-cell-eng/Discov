@@ -43,7 +43,9 @@ import {
   FolderArchive,
   Server,
   Clock,
-  FileCheck
+  FileCheck,
+  Cpu,
+  Zap
 } from 'lucide-react';
 import {
   MasterTournamentInfo,
@@ -98,6 +100,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isLoadingStorage, setIsLoadingStorage] = useState<boolean>(false);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
   const [isCreatingBackup, setIsCreatingBackup] = useState<boolean>(false);
+
+  // Node.js Auto-Build State
+  const [buildStatus, setBuildStatus] = useState<{
+    isBuilding: boolean;
+    hasBuild: boolean;
+    lastBuiltAt: string | null;
+    lastBuildError: string | null;
+    builtFilesCount: number;
+  } | null>(null);
+  const [isTriggeringBuild, setIsTriggeringBuild] = useState<boolean>(false);
 
   // Local Master Data State (initialized from liveMasterData or fetched via API)
   const [localTournament, setLocalTournament] = useState<MasterTournamentInfo>({
@@ -224,11 +236,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // Fetch Node.js Auto-Build status
+  const fetchBuildStatus = async () => {
+    try {
+      const res = await fetch('/api/system/build-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setBuildStatus(data);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     fetchStorageStatus();
-    const interval = setInterval(fetchStorageStatus, 10000);
+    fetchBuildStatus();
+    const interval = setInterval(() => {
+      fetchStorageStatus();
+      fetchBuildStatus();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Trigger Node.js Auto-Build directly
+  const handleTriggerNodeBuild = async () => {
+    try {
+      setIsTriggeringBuild(true);
+      showAlert('info', 'Memulai auto-build frontend langsung di Node.js. Mohon tunggu beberapa detik...');
+      const res = await fetch('/api/system/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showAlert('success', 'Build Node.js berhasil diselesaikan! Aplikasi siap digunakan secara offline & mandiri.');
+        fetchBuildStatus();
+      } else {
+        showAlert('error', data.error || 'Gagal menjalankan build Node.js');
+      }
+    } catch (err: any) {
+      showAlert('error', 'Gagal memicu build Node.js: ' + (err.message || String(err)));
+    } finally {
+      setIsTriggeringBuild(false);
+    }
+  };
 
   // Force Save to Local Server Disk Now
   const handleSaveToLocalDisk = async () => {
@@ -2502,7 +2557,72 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
 
-            {/* 4. Technical Architecture Callout */}
+            {/* 4. Node.js Auto-Build & APK Readiness Card */}
+            <div className="bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-slate-900 border border-amber-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                      <Cpu className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      Auto-Build Otomatis di Node.js (APK & Standalone)
+                      {buildStatus?.isBuilding ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse flex items-center gap-1">
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                          Sedang Mengompilasi...
+                        </span>
+                      ) : buildStatus?.hasBuild ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                          <Check className="w-2.5 h-2.5" />
+                          Siap & Terkompilasi ({buildStatus.builtFilesCount} Berkas)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Auto-Build Siaga
+                        </span>
+                      )}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                    Sistem otomatis mengompilasi bundel Vite secara langsung di lingkungan Node.js saat pertama kali masuk ke aplikasi / APK. Anda juga dapat memicu build manual kapan pun.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    id="admin-trigger-build-btn"
+                    onClick={handleTriggerNodeBuild}
+                    disabled={isTriggeringBuild || buildStatus?.isBuilding}
+                    className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs shadow-lg shadow-amber-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isTriggeringBuild || buildStatus?.isBuilding ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Mengompilasi Vite di Node.js...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        <span>Jalankan Build Node.js Sekarang</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {buildStatus?.lastBuiltAt && (
+                <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Terakhir di-build di Node.js:</span>
+                  <span className="text-amber-300 font-bold">
+                    {new Date(buildStatus.lastBuiltAt).toLocaleString('id-ID')}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* 5. Technical Architecture Callout */}
             <div className="bg-slate-900/60 border border-slate-800/90 rounded-2xl p-5">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2 mb-3">
                 <Server className="w-4 h-4 text-blue-400" />

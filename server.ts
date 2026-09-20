@@ -40,6 +40,13 @@ import {
   exportFullDatabase,
   importFullDatabase
 } from './server/storage.ts';
+import {
+  getBuildStatus,
+  triggerNodeAutoBuild,
+  ensureClientBuildOnStartup,
+  hasBuiltIndex,
+  getDistPath
+} from './server/builder.ts';
 
 const app = express();
 const PORT = 3000;
@@ -49,6 +56,9 @@ app.use(express.json({ limit: '10mb' }));
 
 // Initialize persistent server local storage immediately on startup
 initLocalStorage();
+
+// Check and ensure client build exists when entering the application / Node.js
+ensureClientBuildOnStartup();
 
 // Graceful shutdown hooks to ensure all state is flushed to disk
 process.on('SIGINT', () => {
@@ -540,6 +550,51 @@ app.post('/api/storage/import', (req, res) => {
       message: result.message,
       status
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// SYSTEM AUTO-BUILD IN NODE.JS API
+// ==========================================
+
+// 1. Get Node.js Auto-Build status
+app.get('/api/system/build-status', (req, res) => {
+  try {
+    const status = getBuildStatus();
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Trigger Node.js Auto-Build on demand
+app.post('/api/system/build', async (req, res) => {
+  try {
+    const force = Boolean(req.body?.force);
+    console.log(`[API] Menerima permintaan build frontend langsung dari Node.js (force=${force})...`);
+    
+    // Start or wait for build
+    const buildSuccess = await triggerNodeAutoBuild(force);
+    const status = getBuildStatus();
+
+    if (buildSuccess) {
+      res.json({
+        success: true,
+        message: 'Build frontend di Node.js berhasil diselesaikan!',
+        status
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: status.lastBuildError || 'Proses build frontend gagal.',
+        status
+      });
+    }
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1876,12 +1931,47 @@ const setupStaticAndMiddleware = async () => {
 
     app.use(express.static(distPath));
 
-    app.get('*', (req, res) => {
+    app.get('*', async (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+
       const indexPath = path.join(distPath, 'index.html');
+      if (!fs.existsSync(indexPath)) {
+        console.log('[Node.js] Meminta halaman utama namun build belum selesai. Menjalankan auto-build otomatis...');
+        await triggerNodeAutoBuild(false);
+      }
+
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).send('Build aplikasi tidak ditemukan. Pastikan sudah menjalankan npm run build.');
+        res.status(503).send(`
+          <!DOCTYPE html>
+          <html lang="id">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>Menyiapkan Aplikasi - Auto Build Node.js</title>
+              <meta http-equiv="refresh" content="3" />
+              <style>
+                body { background: #070514; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+                .card { background: #0f0b29; border: 1px solid rgba(245, 158, 11, 0.4); padding: 2.5rem 2rem; border-radius: 1.5rem; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+                .spinner { width: 44px; height: 44px; border: 4px solid #334155; border-top-color: #f59e0b; border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto 1.5rem; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+                h2 { color: #fcd34d; font-size: 1.3rem; margin: 0 0 0.75rem 0; letter-spacing: 0.05em; text-transform: uppercase; }
+                p { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; margin: 0 0 1rem 0; }
+                .badge { display: inline-block; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #f59e0b; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; font-family: monospace; font-weight: bold; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <div class="spinner"></div>
+                <div class="badge">NODE.JS AUTO-BUILD AKTIF</div>
+                <h2 style="margin-top: 1rem;">Menyiapkan Sistem Aplikasi</h2>
+                <p>Node.js sedang mengompilasi bundel frontend secara otomatis saat Anda masuk ke aplikasi / APK.</p>
+                <p style="font-size: 0.8rem; color: #64748b;">Halaman ini akan memuat ulang secara otomatis dalam beberapa detik begitu kompilasi selesai.</p>
+              </div>
+            </body>
+          </html>
+        `);
       }
     });
   }
