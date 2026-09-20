@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#0a1945"/>
+      <stop offset="50%" stopColor="#05112e"/>
+      <stop offset="100%" stopColor="#020718"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#fde68a"/>
+      <stop offset="40%" stopColor="#f59e0b"/>
+      <stop offset="100%" stopColor="#b45309"/>
+    </linearGradient>
+    <linearGradient id="shieldBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#38bdf8"/>
+      <stop offset="100%" stopColor="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="shieldRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#f87171"/>
+      <stop offset="100%" stopColor="#b91c1c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+  
+  <!-- Outer Golden Border -->
+  <rect x="16" y="16" width="480" height="480" rx="98" fill="none" stroke="url(#goldGrad)" stroke-width="8" opacity="0.8"/>
+
+  <!-- Center Shield Base -->
+  <path d="M256 60 C360 60 410 95 410 200 C410 330 310 410 256 452 C202 410 102 330 102 200 C102 95 152 60 256 60 Z"
+        fill="#071333" stroke="url(#goldGrad)" stroke-width="12" filter="drop-shadow(0 12px 24px rgba(0,0,0,0.6))"/>
+
+  <!-- Left Blue Half Shield -->
+  <path d="M256 74 C310 74 340 85 355 110 L256 260 L157 110 C172 85 202 74 256 74 Z" fill="#0b1e4f" opacity="0.5"/>
+  <path d="M256 74 L256 436 C210 396 118 322 118 200 C118 108 160 74 256 74 Z" fill="url(#shieldBlue)" opacity="0.85"/>
+
+  <!-- Right Red Half Shield -->
+  <path d="M256 74 L256 436 C302 396 394 322 394 200 C394 108 352 74 256 74 Z" fill="url(#shieldRed)" opacity="0.85"/>
+
+  <!-- Center Gold Keris / Trisula / Star Emblem -->
+  <!-- Center Vertical Blade -->
+  <path d="M256 120 L266 220 L274 250 L266 350 L256 380 L246 350 L238 250 L246 220 Z" fill="url(#goldGrad)" stroke="#ffffff" stroke-width="2"/>
+  
+  <!-- Center Golden Star -->
+  <path d="M256 145 L263 168 L286 168 L267 182 L274 205 L256 191 L238 205 L245 182 L226 168 L249 168 Z" fill="#ffffff"/>
+
+  <!-- Emblem Text SILAT -->
+  <circle cx="256" cy="270" r="48" fill="#05112e" stroke="url(#goldGrad)" stroke-width="6"/>
+  <text x="256" y="278" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">IPSI</text>
+
+  <!-- Golden Laurel leaves around emblem -->
+  <path d="M190 280 C180 240 200 190 230 170" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M322 280 C332 240 312 190 282 170" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-linecap="round"/>
+</svg>
