@@ -32,7 +32,8 @@ import {
   Swords,
   CheckSquare,
   Square,
-  X
+  X,
+  Upload
 } from 'lucide-react';
 import { GelanggangInfo, ArenaSummary, MatchState, TGRState, MatchHistory } from '../types';
 import { playBeep } from '../utils/sound';
@@ -349,6 +350,21 @@ export default function GelanggangManagerTab({
               <span className="hidden sm:inline">HAPUS BANYAK</span>
             </motion.button>
           )}
+
+          {/* Upload Jadwal Button */}
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => {
+              playBeep('click');
+              setMainTab('jadwal');
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-teal-500 via-emerald-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 text-xs font-black tracking-wider uppercase shadow-lg shadow-teal-500/25 cursor-pointer"
+            title="Buka Layar Unggah & Kelola Jadwal Pertandingan Gelanggang"
+          >
+            <Upload className="w-4 h-4 text-slate-950" />
+            <span className="hidden sm:inline">UPLOAD JADWAL</span>
+          </motion.button>
 
           {/* Add New Arena Button */}
           <motion.button

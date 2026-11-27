@@ -18,114 +18,17 @@ export interface ArenaContainer {
   histories: MatchHistory[];
 }
 
-// Default tournament bracket database
-export const defaultBaganData: BaganCategory[] = [
-  {
-    id: "cat_1",
-    name: "Kelas A Putra (45 - 50 kg)",
-    gender: "Putra",
-    size: 4,
-    matches: [
-      {
-        id: 1,
-        round: "semi",
-        partai: "Partai 01",
-        atletMerah: { nama: "Fajar Ramadhan", kontingen: "Banten" },
-        atletBiru: { nama: "Galang Perkasa", kontingen: "Sumatra Barat" },
-        winner: null
-      },
-      {
-        id: 2,
-        round: "semi",
-        partai: "Partai 02",
-        atletMerah: { nama: "Andi Wijaya", kontingen: "DKI Jakarta" },
-        atletBiru: { nama: "Rian Hidayat", kontingen: "Jawa Barat" },
-        winner: null
-      },
-      {
-        id: 3,
-        round: "final",
-        partai: "Partai 05",
-        atletMerah: { nama: "", kontingen: "" },
-        atletBiru: { nama: "", kontingen: "" },
-        winner: null
-      }
-    ]
-  },
-  {
-    id: "cat_2",
-    name: "Kelas B Putra (50 - 55 kg)",
-    gender: "Putra",
-    size: 8,
-    matches: [
-      {
-        id: 1,
-        round: "quarter",
-        partai: "Partai 03",
-        atletMerah: { nama: "Budi Santoso", kontingen: "Jawa Timur" },
-        atletBiru: { nama: "Made Wirawan", kontingen: "Bali" },
-        winner: null
-      },
-      {
-        id: 2,
-        round: "quarter",
-        partai: "Partai 04",
-        atletMerah: { nama: "Hendra Wijaya", kontingen: "Jawa Tengah" },
-        atletBiru: { nama: "Zulfikar", kontingen: "DI Yogyakarta" },
-        winner: null
-      },
-      {
-        id: 3,
-        round: "quarter",
-        partai: "Partai 06",
-        atletMerah: { nama: "Ahmad Fauzi", kontingen: "Sumatra Utara" },
-        atletBiru: { nama: "Eko Prasetyo", kontingen: "Lampung" },
-        winner: null
-      },
-      {
-        id: 4,
-        round: "quarter",
-        partai: "Partai 07",
-        atletMerah: { nama: "Rizal Gibran", kontingen: "Kaltim" },
-        atletBiru: { nama: "Dimas Anggara", kontingen: "Sulsel" },
-        winner: null
-      },
-      {
-        id: 5,
-        round: "semi",
-        partai: "Partai 08",
-        atletMerah: { nama: "", kontingen: "" },
-        atletBiru: { nama: "", kontingen: "" },
-        winner: null
-      },
-      {
-        id: 6,
-        round: "semi",
-        partai: "Partai 09",
-        atletMerah: { nama: "", kontingen: "" },
-        atletBiru: { nama: "", kontingen: "" },
-        winner: null
-      },
-      {
-        id: 7,
-        round: "final",
-        partai: "Partai 10",
-        atletMerah: { nama: "", kontingen: "" },
-        atletBiru: { nama: "", kontingen: "" },
-        winner: null
-      }
-    ]
-  }
-];
+// Default tournament bracket database (empty by default)
+export const defaultBaganData: BaganCategory[] = [];
 
-export const createInitialMatchState = (gelanggangName: string = "Gelanggang 1"): MatchState => ({
-  namaEvent: "Kejuaraan Pencak Silat Nasional",
+export const createInitialMatchState = (gelanggangName: string = "GELANGGANG A"): MatchState => ({
+  namaEvent: "PENCAK SILAT",
   gelanggang: gelanggangName,
   partai: "01",
-  kelas: "A",
+  kelas: "TANDING KELAS",
   gender: "Putra",
-  atletMerah: { nama: "Atlet Merah", kontingen: "SUDUT MERAH" },
-  atletBiru: { nama: "Atlet Biru", kontingen: "SUDUT BIRU" },
+  atletMerah: { nama: "", kontingen: "" },
+  atletBiru: { nama: "", kontingen: "" },
   selectedWaktu: 120,
   timerActive: false,
   timerSeconds: 120,
@@ -143,6 +46,7 @@ export const createInitialMatchState = (gelanggangName: string = "Gelanggang 1")
     merah: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false },
     biru: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false }
   },
+  accumulatedPenaltyDeductions: { merah: 0, biru: 0 },
   directPoints: { merah: 0, biru: 0 },
   verification: {
     active: false,
@@ -153,73 +57,12 @@ export const createInitialMatchState = (gelanggangName: string = "Gelanggang 1")
   lastValidScore: null,
   winner: null,
   juryPenaltyAccess: false,
-  baganCategories: JSON.parse(JSON.stringify(defaultBaganData)),
+  baganCategories: [],
   activeBaganCategoryId: null,
   activeBaganMatchId: null
 });
 
-export const createInitialTGRPeserta = (): TGRPeserta[] => [
-  {
-    id: "peserta_1",
-    noUrut: 1,
-    nama: "Aditya Wahyu",
-    kontingen: "DKI Jakarta",
-    kategori: "Tunggal",
-    status: "Sudah Menilai",
-    scores: { juri1: 9.910, juri2: 9.930, juri3: 9.920, juri4: 9.940, juri5: 9.915 },
-    kebenaranScores: { juri1: 9.500, juri2: 9.480, juri3: 9.510, juri4: 9.490, juri5: 9.520 },
-    isLocked: true,
-    decisions: ["Sah"],
-    deductions: 0.010,
-    finalScore: 9.918,
-    ranking: 1,
-    dewanDecisionScore: 0
-  },
-  {
-    id: "peserta_2",
-    noUrut: 2,
-    nama: "Rian & Hendra (Duo)",
-    kontingen: "Jawa Barat",
-    kategori: "Ganda",
-    status: "Sudah Menilai",
-    scores: { juri1: 9.880, juri2: 9.890, juri3: 9.875, juri4: 9.910, juri5: 9.885 },
-    kebenaranScores: { juri1: 9.400, juri2: 9.410, juri3: 9.380, juri4: 9.450, juri5: 9.420 },
-    isLocked: true,
-    decisions: ["Sah"],
-    deductions: 0,
-    finalScore: 9.885,
-    ranking: 2,
-    dewanDecisionScore: 0
-  },
-  {
-    id: "peserta_3",
-    noUrut: 3,
-    nama: "Fajar, Galang & Andi",
-    kontingen: "Jawa Timur",
-    kategori: "Regu",
-    status: "Belum Menilai",
-    scores: {},
-    kebenaranScores: {},
-    isLocked: false,
-    decisions: [],
-    deductions: 0,
-    dewanDecisionScore: 0
-  },
-  {
-    id: "peserta_4",
-    noUrut: 4,
-    nama: "Putri Lestari",
-    kontingen: "Jawa Tengah",
-    kategori: "Tunggal",
-    status: "Belum Menilai",
-    scores: {},
-    kebenaranScores: {},
-    isLocked: false,
-    decisions: [],
-    deductions: 0,
-    dewanDecisionScore: 0
-  }
-];
+export const createInitialTGRPeserta = (): TGRPeserta[] => [];
 
 export const createInitialTGRState = (gelanggangName: string = "Gelanggang 1"): TGRState => ({
   namaEvent: "Kejuaraan TGR Pencak Silat IPSI",
@@ -227,8 +70,9 @@ export const createInitialTGRState = (gelanggangName: string = "Gelanggang 1"): 
   partai: "PARTAI 1",
   babak: "PENYISIHAN",
   sistemSeni: "pool",
-  activePesertaId: "peserta_1",
-  pesertaList: createInitialTGRPeserta(),
+  activePesertaId: null,
+  pesertaList: [],
+  partaiPoolList: [],
   jumlahJuri: 5,
   sessionStatus: "open",
   timerActive: false,
@@ -247,6 +91,12 @@ export const recalculateArenaScores = (arena: ArenaContainer) => {
   const state = arena.state;
   let totalMerah = state.scores.merah.babak1 + state.scores.merah.babak2 + state.scores.merah.babak3 + state.directPoints.merah;
   let totalBiru = state.scores.biru.babak1 + state.scores.biru.babak2 + state.scores.biru.babak3 + state.directPoints.biru;
+
+  // Subtract accumulated penalties from previous rounds
+  if (state.accumulatedPenaltyDeductions) {
+    totalMerah -= (state.accumulatedPenaltyDeductions.merah || 0);
+    totalBiru -= (state.accumulatedPenaltyDeductions.biru || 0);
+  }
 
   const penM = state.dewanPenalties.merah;
   if (penM.teguran1) totalMerah -= 1;
@@ -447,9 +297,9 @@ export const createDefaultArena = (
 
 // Authoritative in-memory Multi-Arena Map
 export const arenasMap: Record<string, ArenaContainer> = {
-  arena_1: createDefaultArena("arena_1", "Gelanggang 1", "1", "Matras 1 - Arena Utama A", "tanding"),
-  arena_2: createDefaultArena("arena_2", "Gelanggang 2", "2", "Matras 2 - Arena B", "tanding"),
-  arena_3: createDefaultArena("arena_3", "Gelanggang 3", "3", "Matras 3 - Arena Seni C", "seni")
+  arena_1: createDefaultArena("arena_1", "GELANGGANG A", "A", "Matras A - Arena Utama", "tanding"),
+  arena_2: createDefaultArena("arena_2", "GELANGGANG B", "B", "Matras B - Arena B", "tanding"),
+  arena_3: createDefaultArena("arena_3", "GELANGGANG C", "C", "Matras C - Arena Seni", "seni")
 };
 
 // Helper to safely get an arena

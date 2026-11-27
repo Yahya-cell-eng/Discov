@@ -64,6 +64,8 @@ import {
   ScheduleMetadata
 } from '../utils/generateSchedulePdf';
 import EditJadwalPartaiModal from './EditJadwalPartaiModal';
+import UploadJadwalModal from './UploadJadwalModal';
+import { ParsedScheduleSummary } from '../utils/scheduleParser';
 
 interface GelanggangJadwalSectionProps {
   arenasList: GelanggangInfo[];
@@ -128,6 +130,57 @@ export default function GelanggangJadwalSection({
   const [distSuccessMsg, setDistSuccessMsg] = useState<string | null>(null);
   const [excelLoading, setExcelLoading] = useState(false);
   const [excelDistSuccess, setExcelDistSuccess] = useState<string | null>(null);
+
+  // Upload Jadwal Gelanggang modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadDefaultMode, setUploadDefaultMode] = useState<'tanding' | 'seni' | 'all'>('all');
+
+  const handleApplyUploadSchedule = (params: {
+    tandingCategories: BaganCategory[];
+    seniPesertaList: TGRPeserta[];
+    targetArena: 'current' | 'all' | string;
+    mode: 'tanding' | 'seni' | 'all';
+    rawSummary: ParsedScheduleSummary;
+  }) => {
+    const { tandingCategories: newCats, seniPesertaList: newSeni, targetArena, mode, rawSummary } = params;
+    playBeep('valid');
+
+    if (targetArena === 'all') {
+      dispatch('DISTRIBUTE_EXCEL_ALL_ARENAS', {
+        tandingCategories: newCats,
+        seniPesertaList: newSeni
+      });
+      setDistSuccessMsg(`Berhasil mengunggah & mendistribusikan ${rawSummary.totalRows} partai ke SEMUA gelanggang aktif!`);
+    } else {
+      const targetId = targetArena === 'current' ? selectedArenaId : targetArena;
+      if (mode === 'tanding' || mode === 'all') {
+        if (newCats && newCats.length > 0) {
+          dispatch('UPDATE_BAGAN_CATEGORIES', {
+            arenaId: targetId,
+            categories: newCats
+          });
+        }
+      }
+      if (mode === 'seni' || mode === 'all') {
+        if (newSeni && newSeni.length > 0) {
+          dispatch('UPDATE_TGR_PESERTA_LIST', {
+            arenaId: targetId,
+            pesertaList: newSeni
+          });
+          dispatch('TGR_UPDATE_PESERTA', {
+            arenaId: targetId,
+            action: 'sync_list',
+            pesertaList: newSeni
+          });
+        }
+      }
+      const targetName = arenasList.find(a => a.id === targetId)?.nama || selectedArenaInfo?.nama || 'Gelanggang';
+      setDistSuccessMsg(`Berhasil mengunggah ${rawSummary.totalRows} jadwal partai ke ${targetName}!`);
+    }
+
+    setTimeout(() => setDistSuccessMsg(null), 6000);
+    setShowUploadModal(false);
+  };
 
   const handleExcelUploadAndDistribute = async (file: File) => {
     try {
@@ -655,9 +708,21 @@ export default function GelanggangJadwalSection({
           </button>
         </div>
 
-        {/* Global Export Buttons for this Gelanggang */}
+        {/* Global Export & Upload Buttons for this Gelanggang */}
         {scheduleMode !== 'distribusi' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                playBeep('click');
+                setUploadDefaultMode(scheduleMode === 'seni' ? 'seni' : 'tanding');
+                setShowUploadModal(true);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+              title="Unggah berkas jadwal (Excel .xlsx / CSV / JSON) untuk gelanggang ini atau semua gelanggang"
+            >
+              <Upload className="w-3.5 h-3.5 text-slate-950" />
+              <span>UPLOAD JADWAL</span>
+            </button>
             <button
               onClick={handleExportPdf}
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -768,8 +833,21 @@ export default function GelanggangJadwalSection({
               <option value="pending">Menunggu / Antrean</option>
             </select>
 
-            {/* Action Buttons: Add & Renumber */}
-            <div className="flex items-center gap-2">
+            {/* Action Buttons: Add & Renumber & Upload */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  playBeep('click');
+                  setUploadDefaultMode('tanding');
+                  setShowUploadModal(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-teal-950/90 hover:bg-teal-900 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Unggah jadwal tanding dari Excel / CSV"
+              >
+                <Upload className="w-3.5 h-3.5 text-teal-400" />
+                <span>Upload Tanding</span>
+              </button>
+
               <button
                 onClick={() => {
                   playBeep('click');
@@ -823,7 +901,7 @@ export default function GelanggangJadwalSection({
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredTandingMatches.map(item => {
+              {filteredTandingMatches.map((item, idx) => {
                 const isLive =
                   activeArenaData.state?.activeBaganCategoryId === item.catId &&
                   activeArenaData.state?.activeBaganMatchId === item.match.id;
@@ -835,7 +913,7 @@ export default function GelanggangJadwalSection({
 
                 return (
                   <div
-                    key={`${item.catId}_${item.match.id}`}
+                    key={`${item.catId}_${item.match.id}__${idx}`}
                     className={`rounded-2xl border p-4 transition-all flex flex-col gap-3 ${
                       isLive
                         ? 'border-emerald-500 bg-gradient-to-r from-emerald-950/40 to-slate-900/90 shadow-lg shadow-emerald-500/10'
@@ -1066,8 +1144,21 @@ export default function GelanggangJadwalSection({
               <option value="pending">Belum Menilai</option>
             </select>
 
-            {/* Action Buttons: Add & Renumber */}
-            <div className="flex items-center gap-2">
+            {/* Action Buttons: Add & Renumber & Upload */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  playBeep('click');
+                  setUploadDefaultMode('seni');
+                  setShowUploadModal(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-purple-950/90 hover:bg-purple-900 border border-purple-500/50 text-purple-300 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Unggah jadwal seni dari Excel / CSV"
+              >
+                <Upload className="w-3.5 h-3.5 text-purple-400" />
+                <span>Upload Seni</span>
+              </button>
+
               <button
                 onClick={() => {
                   playBeep('click');
@@ -1128,7 +1219,7 @@ export default function GelanggangJadwalSection({
 
                 return (
                   <div
-                    key={p.id || idx}
+                    key={`${p.id || 'seni'}__${idx}`}
                     className={`rounded-2xl border p-4 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
                       isLive
                         ? 'border-purple-500 bg-gradient-to-r from-purple-950/40 to-slate-900/90 shadow-lg shadow-purple-500/10'
@@ -1604,6 +1695,19 @@ export default function GelanggangJadwalSection({
           }}
           targetMatchId={editTargetId}
           targetType={editTargetType}
+        />
+      )}
+
+      {/* 7. MODAL: UPLOAD JADWAL GELANGGANG */}
+      {showUploadModal && (
+        <UploadJadwalModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          onApplySchedule={handleApplyUploadSchedule}
+          currentArenaName={selectedArenaInfo?.nama || 'Gelanggang 1'}
+          selectedArenaId={selectedArenaId}
+          arenasList={arenasList}
+          defaultMode={uploadDefaultMode}
         />
       )}
     </div>

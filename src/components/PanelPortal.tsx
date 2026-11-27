@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Radio,
@@ -20,19 +20,28 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
-  HardDrive
+  HardDrive,
+  Wifi,
+  WifiOff,
+  Maximize2,
+  Minimize2,
+  Cloud
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { playBeep } from '../utils/sound';
+import ykLogo from '../assets/images/yk_logo.jpg';
 import tandingImg from '../assets/images/tanding_shield_logo_1783848117532.jpg';
 import seniImg from '../assets/images/seni_shield_logo_1783848135838.jpg';
 import RekapitulasiSkor from './RekapitulasiSkor';
 import GelanggangManagerTab from './GelanggangManagerTab';
 import { MatchHistory, TGRState, MatchState, GelanggangInfo, ArenaSummary } from '../types';
 import ThemePaletteSelector from './ThemePaletteSelector';
+import PWAInstallButton from './PWAInstallButton';
 import { generateSchedulePdf, ScheduleMetadata, ScheduleMatchRow } from '../utils/generateSchedulePdf';
-import InstallAppModal from './InstallAppModal';
+import ServerConnectionModal from './ServerConnectionModal';
+import type { GoogleDriveStorageProps } from './GoogleDriveStoragePanel';
 
-interface PanelPortalProps {
+interface PanelPortalProps extends GoogleDriveStorageProps {
   onSelectMode: (mode: 'tanding' | 'seni' | 'monitor_urutan' | 'admin', targetRole?: string) => void;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
@@ -46,6 +55,23 @@ interface PanelPortalProps {
   allArenasSummary?: ArenaSummary[];
   allArenasMap?: Record<string, { state: MatchState; tgrState: TGRState; histories: MatchHistory[]; info: GelanggangInfo }>;
   masterData?: any;
+  connected?: boolean;
+  onReconnect?: () => void;
+  googleUser?: User | null;
+  googleSyncEnabled?: boolean;
+  onToggleGoogleSync?: (enabled: boolean) => void;
+  googleSyncStatus?: 'disconnected' | 'connecting' | 'synced' | 'error';
+  googleError?: string | null;
+  cloudTournamentId?: string | null;
+  onSignInGoogle?: () => Promise<any>;
+  onSignOutGoogle?: () => Promise<void>;
+  onPushAllToGoogleCloud?: () => Promise<void>;
+  firebaseProjectInfo?: {
+    projectId: string;
+    databaseId: string;
+    authDomain: string;
+    hasFirestoreDatabase?: boolean;
+  };
 }
 
 export default function PanelPortal({
@@ -61,11 +87,88 @@ export default function PanelPortal({
   arenasList = [],
   allArenasSummary = [],
   allArenasMap = {},
-  masterData = null
+  masterData = null,
+  connected = false,
+  onReconnect = () => {},
+  googleUser = null,
+  googleSyncEnabled = true,
+  onToggleGoogleSync = () => {},
+  googleSyncStatus = 'disconnected',
+  googleError = null,
+  cloudTournamentId = null,
+  onSignInGoogle,
+  onSignOutGoogle,
+  onPushAllToGoogleCloud,
+  firebaseProjectInfo,
+  driveConnected = false,
+  driveFolder = null,
+  driveFiles = [],
+  driveMainFile = null,
+  driveSchedulePdfFile = null,
+  driveFinalReportPdfFile = null,
+  driveStatus = 'idle',
+  driveError = null,
+  lastDriveSyncAt = null,
+  onConnectGoogleDrive,
+  onRefreshDriveFiles,
+  onSaveNewDriveSnapshot,
+  onCreateMainDriveFile,
+  onOverwriteMainDriveFile,
+  onSaveSchedulePdfToDrive,
+  onSaveFinalReportPdfToDrive,
+  onRestoreFromDriveFile,
+  onDownloadDriveFile,
+  onDeleteDriveFile
 }: PanelPortalProps) {
   // Main Navigation Tabs on Home Portal: 'portal' | 'gelanggang' | 'rekapitulasi'
   const [activeTab, setActiveTab] = useState<'portal' | 'gelanggang' | 'rekapitulasi'>('portal');
-  const [showInstallModal, setShowInstallModal] = useState<boolean>(false);
+  const [showServerModal, setShowServerModal] = useState<boolean>(false);
+
+  // Fullscreen state detection
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    if (typeof document !== 'undefined') {
+      return !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFs = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFs);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    playBeep('click');
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch((err) => console.warn(err));
+    } else {
+      document.exitFullscreen?.().catch((err) => console.warn(err));
+    }
+  };
 
   const currentArena = arenasList.find(a => a.id === currentArenaId) || arenasList[0] || {
     id: 'arena_1',
@@ -195,8 +298,9 @@ export default function PanelPortal({
         <div className="absolute top-1/3 left-0 w-[35rem] h-[35rem] rounded-full blur-[170px] bg-indigo-950/20" />
       </div>
 
-      {/* 1. TOP BAR QUICK HUBS & ARENA BADGES */}
-      <div className="w-full max-w-7xl z-10 flex flex-wrap items-center justify-between gap-3 mb-2">
+
+      {/* 1. TOP BAR QUICK HUBS & ARENA BADGES - Disembunyikan saat Layar Penuh (Fullscreen) */}
+      <div className={`w-full max-w-7xl z-10 flex flex-wrap items-center justify-between gap-3 mb-2 hide-on-fullscreen transition-all duration-300 ${isFullscreen ? '!hidden' : 'flex'}`}>
         <div className="flex flex-wrap items-center gap-2.5">
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -230,7 +334,39 @@ export default function PanelPortal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Back to YK Welcome Landing Page Button */}
+          <motion.button
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              playBeep('click');
+              onSelectMode('welcome' as any);
+            }}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-red-500/50 bg-red-950/70 hover:bg-red-900/80 text-[10px] font-mono tracking-wider font-extrabold uppercase text-red-300 shadow-[0_0_20px_rgba(239,68,68,0.3)] transition-all cursor-pointer"
+            title="Kembali ke Halaman Selamat Datang YK Digital Scoring"
+          >
+            <img src={ykLogo} alt="YK" className="w-4 h-4 object-contain rounded-full border border-red-400/50" />
+            <span>BERANDA YK</span>
+          </motion.button>
+
+          <PWAInstallButton variant="button" />
           <ThemePaletteSelector compact={false} />
+
+          {/* Dedicated Fullscreen Toggle Button */}
+          <motion.button
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={toggleFullscreen}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-[10px] font-mono tracking-wider font-extrabold uppercase text-slate-300 shadow-[0_0_15px_rgba(255,255,255,0.05)] transition-all cursor-pointer"
+            title="Layar Penuh (F11 / Fullscreen)"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">FULLSCREEN</span>
+          </motion.button>
 
           {/* Dedicated Unduh Jadwal Pertandingan Button */}
           <motion.button
@@ -259,7 +395,7 @@ export default function PanelPortal({
             <span>MONITOR URUTAN</span>
           </motion.button>
 
-          {/* Dedicated Admin Panel Launch Button */}
+          {/* Dedicated Admin Panel Launch Button (Hidden per user request) */}
           <motion.button
             id="portal-admin-panel-btn"
             initial={{ opacity: 0, y: -10 }}
@@ -270,55 +406,129 @@ export default function PanelPortal({
               playBeep('valid');
               onSelectMode('admin');
             }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-amber-500/60 bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 hover:from-amber-900 hover:to-slate-800 text-[10px] font-mono tracking-wider font-extrabold uppercase text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.35)] transition-all cursor-pointer"
+            className="hidden items-center gap-2 px-3.5 py-1.5 rounded-full border border-amber-500/60 bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 hover:from-amber-900 hover:to-slate-800 text-[10px] font-mono tracking-wider font-extrabold uppercase text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.35)] transition-all cursor-pointer"
             title="AdminPanel - Kelola Data Master Turnamen, Wasit & Juri, dan Penugasan Gelanggang"
           >
             <Shield className="w-3.5 h-3.5 text-amber-400" />
             <span>ADMIN PANEL</span>
           </motion.button>
 
-          {/* Dedicated Install PWA Button */}
+          {/* Server Connection / Google Drive & APK Setup Button */}
           <motion.button
-            id="portal-install-app-btn"
+            id="portal-server-conn-btn"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               playBeep('click');
-              setShowInstallModal(true);
+              setShowServerModal(true);
             }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-pink-500/60 bg-gradient-to-r from-fuchsia-950/90 via-pink-950/80 to-purple-950/90 hover:from-pink-900 hover:to-purple-900 text-[10px] font-mono tracking-wider font-extrabold uppercase text-pink-300 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition-all cursor-pointer"
-            title="Pasang aplikasi ke layar utama Laptop / HP (PWA Standalone)"
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-[10px] font-mono tracking-wider font-extrabold uppercase transition-all cursor-pointer ${
+              driveConnected
+                ? 'border-emerald-500/60 bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                : googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                ? 'border-blue-500/60 bg-blue-950/70 hover:bg-blue-900/80 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.3)]'
+                : connected
+                ? 'border-emerald-500/60 bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                : 'border-amber-500/60 bg-amber-950/70 hover:bg-amber-900/80 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+            }`}
+            title="Pengaturan Penyimpanan Google Drive, Google Cloud & IP Server Lokal APK Android"
           >
-            <Download className="w-3.5 h-3.5 text-pink-400" />
-            <span>PASANG APLIKASI</span>
+            {driveConnected ? (
+              <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+            ) : googleUser && googleSyncEnabled && googleSyncStatus === 'synced' ? (
+              <Cloud className="w-3.5 h-3.5 text-blue-400" />
+            ) : connected ? (
+              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>
+              {driveConnected
+                ? 'DRIVE TERHUBUNG'
+                : googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                ? 'SERVER GOOGLE AKTIF'
+                : googleSyncStatus === 'connecting'
+                ? 'MENYAMBUNG GOOGLE...'
+                : connected
+                ? 'SERVER TERHUBUNG'
+                : 'SETUP SERVER / GOOGLE'}
+            </span>
           </motion.button>
 
-          {/* Local Server Storage Indicator Pill */}
-          <motion.div
+          {/* Cloud / Local Storage Indicator Pill */}
+          <motion.button
+            type="button"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="hidden xl:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/40 bg-[#041a12]/80 text-[10px] font-mono tracking-wider font-extrabold uppercase text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)] select-none"
-            title="Sistem Berbasis Server Lokal: Data turnamen, wasit, dan arena tersimpan permanen di disk lokal (./data)"
+            onClick={() => {
+              playBeep('click');
+              setShowServerModal(true);
+            }}
+            className={`hidden xl:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono tracking-wider font-extrabold uppercase shadow cursor-pointer transition-all ${
+              driveConnected
+                ? 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                ? 'border-blue-500/50 bg-blue-950/70 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.2)]'
+                : 'border-emerald-500/40 bg-[#041a12]/80 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+            }`}
+            title={
+              driveConnected
+                ? 'Penyimpanan Google Drive Aktif: Data turnamen tersimpan ke folder Google Drive Anda'
+                : googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                ? 'Penyimpanan Google Firestore Aktif: Data turnamen, wasit, atlet, dan arena tersimpan di Google Cloud'
+                : 'Penyimpanan Data: Klik untuk mengaktifkan Penyimpanan Google Drive'
+            }
           >
-            <HardDrive className="w-3 h-3 text-emerald-400" />
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>SERVER LOKAL TERSIMPAN</span>
-          </motion.div>
+            {googleUser && googleSyncEnabled && googleSyncStatus === 'synced' ? (
+              <Cloud className="w-3 h-3 text-blue-400" />
+            ) : (
+              <HardDrive className="w-3 h-3 text-emerald-400" />
+            )}
+            <span
+              className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                googleUser && googleSyncEnabled && googleSyncStatus === 'synced' ? 'bg-blue-400' : 'bg-emerald-400'
+              }`}
+            />
+            <span>
+              {driveConnected
+                ? 'GOOGLE DRIVE AKTIF'
+                : googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                ? 'PENYIMPANAN GOOGLE AKTIF'
+                : 'PENYIMPANAN LOKAL / DRIVE'}
+            </span>
+          </motion.button>
         </div>
       </div>
 
       {/* 2. CENTER TITLES */}
-      <div className="max-w-4xl w-full text-center z-10 flex flex-col items-center my-4">
+      <div className="max-w-4xl w-full text-center z-10 flex flex-col items-center my-3">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.6 }}
-          className="space-y-2"
+          className="flex flex-col items-center space-y-2"
         >
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-blue-400 filter drop-shadow-[0_0_30px_rgba(59,130,246,0.3)] uppercase select-none">
-            DIGITAL SKORING PENCAK SILAT
+          {/* YK Logo Emblem */}
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl p-0.5 bg-gradient-to-b from-red-500 to-slate-900 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.4)] overflow-hidden">
+              <img
+                src={ykLogo}
+                alt="YK Digital Scoring"
+                className="w-full h-full object-contain rounded-xl bg-black"
+              />
+            </div>
+            <div className="text-left">
+              <span className="text-[10px] font-mono font-bold tracking-widest text-red-400 uppercase">OFFICIAL SYSTEM</span>
+              <h2 className="text-xl sm:text-2xl font-black tracking-wider text-white uppercase leading-none">
+                YK DIGITAL SCORING
+              </h2>
+            </div>
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-white to-blue-400 filter drop-shadow-[0_0_30px_rgba(239,68,68,0.3)] uppercase select-none">
+            PORTAL ARENA PENCAK SILAT
           </h1>
           <p className="text-[10px] md:text-xs tracking-[0.15em] font-bold text-slate-300 uppercase max-w-2xl mx-auto leading-relaxed">
             APLIKASI DIGITAL SKORING PENCAK SILAT BERBASIS REAL-TIME SINKRONISASI OFFLINE / ONLINE MULTI DEVICE & MULTI GELANGGANG
@@ -524,6 +734,16 @@ export default function PanelPortal({
         <span>© 2026 NO DISCORD. HAK CIPTA DILINDUNGI.</span>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => {
+              playBeep('valid');
+              onSelectMode('admin');
+            }}
+            className="px-2 py-1 rounded bg-slate-950/80 border border-slate-900 text-slate-500 hover:text-amber-400 hover:border-amber-500/30 transition-colors text-[8px] uppercase font-mono font-bold tracking-widest cursor-pointer"
+            title="Admin Panel Data Master"
+          >
+            ADMIN
+          </button>
+          <button
             onClick={onToggleTheme}
             className="px-2.5 py-1 rounded bg-slate-950 border border-slate-900 text-slate-400 hover:text-slate-200 transition-colors text-[8px] uppercase font-bold tracking-widest cursor-pointer"
           >
@@ -533,10 +753,41 @@ export default function PanelPortal({
         <span>SISTEM SKORING DIGITAL PENCAK SILAT MULTI GELANGGANG</span>
       </div>
 
-      {/* PWA Install Modal */}
-      <InstallAppModal
-        isOpen={showInstallModal}
-        onClose={() => setShowInstallModal(false)}
+      {/* APK & Google Cloud Server Connection Modal */}
+      <ServerConnectionModal
+        isOpen={showServerModal}
+        onClose={() => setShowServerModal(false)}
+        connected={connected}
+        onReconnect={onReconnect}
+        googleUser={googleUser}
+        googleSyncEnabled={googleSyncEnabled}
+        onToggleGoogleSync={onToggleGoogleSync}
+        googleSyncStatus={googleSyncStatus}
+        googleError={googleError}
+        cloudTournamentId={cloudTournamentId}
+        onSignInGoogle={onSignInGoogle}
+        onSignOutGoogle={onSignOutGoogle}
+        onPushAllToGoogleCloud={onPushAllToGoogleCloud}
+        firebaseProjectInfo={firebaseProjectInfo}
+        driveConnected={driveConnected}
+        driveFolder={driveFolder}
+        driveFiles={driveFiles}
+        driveMainFile={driveMainFile}
+        driveSchedulePdfFile={driveSchedulePdfFile}
+        driveFinalReportPdfFile={driveFinalReportPdfFile}
+        driveStatus={driveStatus}
+        driveError={driveError}
+        lastDriveSyncAt={lastDriveSyncAt}
+        onConnectGoogleDrive={onConnectGoogleDrive}
+        onRefreshDriveFiles={onRefreshDriveFiles}
+        onSaveNewDriveSnapshot={onSaveNewDriveSnapshot}
+        onCreateMainDriveFile={onCreateMainDriveFile}
+        onOverwriteMainDriveFile={onOverwriteMainDriveFile}
+        onSaveSchedulePdfToDrive={onSaveSchedulePdfToDrive}
+        onSaveFinalReportPdfToDrive={onSaveFinalReportPdfToDrive}
+        onRestoreFromDriveFile={onRestoreFromDriveFile}
+        onDownloadDriveFile={onDownloadDriveFile}
+        onDeleteDriveFile={onDeleteDriveFile}
       />
 
     </div>

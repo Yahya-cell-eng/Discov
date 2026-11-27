@@ -23,6 +23,7 @@ import TGRRegistrasiDataPanel from './components/TGRRegistrasiDataPanel';
 import RegistrasiDataPanel from './components/RegistrasiDataPanel';
 
 import PanelPortal from './components/PanelPortal';
+import WelcomeLandingPage from './components/WelcomeLandingPage';
 import LandscapeWrapper from './components/LandscapeWrapper';
 import { playBeep } from './utils/sound';
 import { AdminPanel } from './components/AdminPanel';
@@ -39,14 +40,49 @@ export default function App() {
     arenasList,
     allArenasSummary,
     allArenasMap,
-    masterData
+    masterData,
+    reconnect,
+    googleUser,
+    googleSyncEnabled,
+    setGoogleSyncEnabled,
+    googleSyncStatus,
+    googleError,
+    cloudTournamentId,
+    cloudBackups,
+    lastCloudSyncAt,
+    signInGoogle,
+    signOutGoogle,
+    pushAllToGoogleCloud,
+    createGoogleBackup,
+    restoreGoogleBackup,
+    deleteGoogleBackup,
+    firebaseProjectInfo,
+    driveConnected,
+    driveFolder,
+    driveFiles,
+    driveMainFile,
+    driveSchedulePdfFile,
+    driveFinalReportPdfFile,
+    driveStatus,
+    driveError,
+    lastDriveSyncAt,
+    connectGoogleDrive,
+    refreshGoogleDriveFiles,
+    saveNewDriveSnapshot,
+    createMainDriveFile,
+    overwriteMainDriveFile,
+    saveSchedulePdfToDrive,
+    saveFinalReportPdfToDrive,
+    restoreFromGoogleDriveFile,
+    downloadDriveFileToLocal,
+    deleteGoogleDriveFile
   } = useSyncState();
 
-  // Mode: 'portal' | 'tanding' | 'seni' | 'admin'
-  const [activeMode, setActiveMode] = useState<'portal' | 'tanding' | 'seni' | 'admin'>(() => {
+  // Mode: 'welcome' | 'portal' | 'tanding' | 'seni' | 'admin'
+  const [activeMode, setActiveMode] = useState<'welcome' | 'portal' | 'tanding' | 'seni' | 'admin'>(() => {
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode');
-    if (mode === 'tanding' || mode === 'seni' || mode === 'admin') return mode as any;
+    if (mode === 'welcome' || mode === 'portal' || mode === 'tanding' || mode === 'seni' || mode === 'admin') return mode as any;
 
     // Support deep link by inferring mode from role
     const role = params.get('role');
@@ -57,7 +93,7 @@ export default function App() {
       }
       return 'tanding'; // default fallback for other roles
     }
-    return 'portal';
+    return 'welcome';
   });
 
   // Role within selected mode
@@ -81,8 +117,25 @@ export default function App() {
     localStorage.setItem('theme', newTheme);
   };
 
-  const handleSelectMode = (mode: 'tanding' | 'seni' | 'monitor_urutan' | 'admin', targetRole?: string) => {
+  const handleSelectMode = (mode: 'tanding' | 'seni' | 'monitor_urutan' | 'admin' | 'portal' | 'welcome', targetRole?: string) => {
     const params = new URLSearchParams(window.location.search);
+    if (mode === 'welcome') {
+      params.delete('mode');
+      params.delete('role');
+      const newSearch = params.toString();
+      window.history.pushState({}, '', `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`);
+      setActiveMode('welcome');
+      setActiveRole('landing');
+      return;
+    }
+    if (mode === 'portal') {
+      params.set('mode', 'portal');
+      params.delete('role');
+      window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}`);
+      setActiveMode('portal');
+      setActiveRole('landing');
+      return;
+    }
     if (mode === 'monitor_urutan') {
       params.set('mode', 'tanding');
       params.set('role', 'monitor_urutan');
@@ -131,7 +184,7 @@ export default function App() {
     params.delete('role');
     const newSearch = params.toString();
     window.history.pushState({}, '', `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`);
-    setActiveMode('portal');
+    setActiveMode('welcome');
     setActiveRole('landing');
   };
 
@@ -166,6 +219,64 @@ export default function App() {
   }
 
   const renderContent = () => {
+    // 0. Welcome Landing Page with YK Digital Scoring Logo
+    if (activeMode === 'welcome') {
+      return (
+        <WelcomeLandingPage
+          onSelectMode={handleSelectMode}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          histories={histories}
+          tgrState={tgrState}
+          state={state}
+          dispatch={dispatch}
+          currentArenaId={currentArenaId}
+          onSelectArena={selectArena}
+          arenasList={arenasList}
+          allArenasSummary={allArenasSummary}
+          allArenasMap={allArenasMap}
+          masterData={masterData}
+          connected={connected}
+          onReconnect={reconnect}
+          googleUser={googleUser}
+          googleSyncEnabled={googleSyncEnabled}
+          onToggleGoogleSync={setGoogleSyncEnabled}
+          googleSyncStatus={googleSyncStatus}
+          googleError={googleError}
+          cloudTournamentId={cloudTournamentId}
+          onSignInGoogle={signInGoogle}
+          onSignOutGoogle={signOutGoogle}
+          onPushAllToGoogleCloud={pushAllToGoogleCloud}
+          firebaseProjectInfo={firebaseProjectInfo}
+          driveConnected={driveConnected}
+          driveFolder={driveFolder}
+          driveFiles={driveFiles}
+          driveMainFile={driveMainFile}
+          driveSchedulePdfFile={driveSchedulePdfFile}
+          driveFinalReportPdfFile={driveFinalReportPdfFile}
+          driveStatus={driveStatus}
+          driveError={driveError}
+          lastDriveSyncAt={lastDriveSyncAt}
+          onConnectGoogleDrive={connectGoogleDrive}
+          onRefreshDriveFiles={refreshGoogleDriveFiles}
+          onSaveNewDriveSnapshot={saveNewDriveSnapshot}
+          onCreateMainDriveFile={createMainDriveFile}
+          onOverwriteMainDriveFile={overwriteMainDriveFile}
+          onSaveSchedulePdfToDrive={saveSchedulePdfToDrive}
+          onSaveFinalReportPdfToDrive={saveFinalReportPdfToDrive}
+          onRestoreFromDriveFile={restoreFromGoogleDriveFile}
+          onDownloadDriveFile={downloadDriveFileToLocal}
+          onDeleteDriveFile={deleteGoogleDriveFile}
+          onOpenGelanggangTab={() => {
+            handleSelectMode('portal');
+          }}
+          onOpenRekapitulasiTab={() => {
+            handleSelectMode('portal');
+          }}
+        />
+      );
+    }
+
     // 1. If we are on the global gateway portal
     if (activeMode === 'portal') {
       return (
@@ -183,6 +294,37 @@ export default function App() {
           allArenasSummary={allArenasSummary}
           allArenasMap={allArenasMap}
           masterData={masterData}
+          connected={connected}
+          onReconnect={reconnect}
+          googleUser={googleUser}
+          googleSyncEnabled={googleSyncEnabled}
+          onToggleGoogleSync={setGoogleSyncEnabled}
+          googleSyncStatus={googleSyncStatus}
+          googleError={googleError}
+          cloudTournamentId={cloudTournamentId}
+          onSignInGoogle={signInGoogle}
+          onSignOutGoogle={signOutGoogle}
+          onPushAllToGoogleCloud={pushAllToGoogleCloud}
+          firebaseProjectInfo={firebaseProjectInfo}
+          driveConnected={driveConnected}
+          driveFolder={driveFolder}
+          driveFiles={driveFiles}
+          driveMainFile={driveMainFile}
+          driveSchedulePdfFile={driveSchedulePdfFile}
+          driveFinalReportPdfFile={driveFinalReportPdfFile}
+          driveStatus={driveStatus}
+          driveError={driveError}
+          lastDriveSyncAt={lastDriveSyncAt}
+          onConnectGoogleDrive={connectGoogleDrive}
+          onRefreshDriveFiles={refreshGoogleDriveFiles}
+          onSaveNewDriveSnapshot={saveNewDriveSnapshot}
+          onCreateMainDriveFile={createMainDriveFile}
+          onOverwriteMainDriveFile={overwriteMainDriveFile}
+          onSaveSchedulePdfToDrive={saveSchedulePdfToDrive}
+          onSaveFinalReportPdfToDrive={saveFinalReportPdfToDrive}
+          onRestoreFromDriveFile={restoreFromGoogleDriveFile}
+          onDownloadDriveFile={downloadDriveFileToLocal}
+          onDeleteDriveFile={deleteGoogleDriveFile}
         />
       );
     }
@@ -196,6 +338,46 @@ export default function App() {
         arenasList={arenasList}
         currentArenaId={currentArenaId}
         onSelectArena={selectArena}
+        state={state}
+        tgrState={tgrState}
+        histories={histories}
+        dispatch={dispatch}
+        allArenasMap={allArenasMap}
+        allArenasSummary={allArenasSummary}
+        googleUser={googleUser}
+        googleSyncEnabled={googleSyncEnabled}
+        onToggleGoogleSync={setGoogleSyncEnabled}
+        googleSyncStatus={googleSyncStatus}
+        googleError={googleError}
+        cloudTournamentId={cloudTournamentId}
+        cloudBackups={cloudBackups}
+        lastCloudSyncAt={lastCloudSyncAt}
+        onSignInGoogle={signInGoogle}
+        onSignOutGoogle={signOutGoogle}
+        onPushAllToGoogleCloud={pushAllToGoogleCloud}
+        onCreateGoogleBackup={createGoogleBackup}
+        onRestoreGoogleBackup={restoreGoogleBackup}
+        onDeleteGoogleBackup={deleteGoogleBackup}
+        firebaseProjectInfo={firebaseProjectInfo}
+        driveConnected={driveConnected}
+        driveFolder={driveFolder}
+        driveFiles={driveFiles}
+        driveMainFile={driveMainFile}
+        driveSchedulePdfFile={driveSchedulePdfFile}
+        driveFinalReportPdfFile={driveFinalReportPdfFile}
+        driveStatus={driveStatus}
+        driveError={driveError}
+        lastDriveSyncAt={lastDriveSyncAt}
+        onConnectGoogleDrive={connectGoogleDrive}
+        onRefreshDriveFiles={refreshGoogleDriveFiles}
+        onSaveNewDriveSnapshot={saveNewDriveSnapshot}
+        onCreateMainDriveFile={createMainDriveFile}
+        onOverwriteMainDriveFile={overwriteMainDriveFile}
+        onSaveSchedulePdfToDrive={saveSchedulePdfToDrive}
+        onSaveFinalReportPdfToDrive={saveFinalReportPdfToDrive}
+        onRestoreFromDriveFile={restoreFromGoogleDriveFile}
+        onDownloadDriveFile={downloadDriveFileToLocal}
+        onDeleteDriveFile={deleteGoogleDriveFile}
       />
     );
   }
@@ -352,7 +534,7 @@ export default function App() {
     case 'dewan':
       return (
         <LandscapeWrapper>
-          <DewanPanel state={state} dispatch={dispatch} onBack={handleBackToHome} theme={theme} onToggleTheme={handleToggleTheme} />
+          <DewanPanel state={state} histories={histories} tgrState={tgrState} dispatch={dispatch} onBack={handleBackToHome} theme={theme} onToggleTheme={handleToggleTheme} />
         </LandscapeWrapper>
       );
     
@@ -387,7 +569,17 @@ export default function App() {
     case 'monitor':
       return (
         <LandscapeWrapper>
-          <MonitorPanel state={state} onBack={handleBackToHome} theme={theme} onToggleTheme={handleToggleTheme} />
+          <MonitorPanel 
+            state={state} 
+            histories={histories}
+            dispatch={dispatch}
+            onBack={handleBackToHome} 
+            theme={theme} 
+            onToggleTheme={handleToggleTheme}
+            onResetScores={() => dispatch('RESET_SKOR')}
+            onSelectBabak={(babak) => dispatch('SET_BABAK', { babak })}
+            serverPenaltyConfig={masterData?.penaltyIcons}
+          />
         </LandscapeWrapper>
       );
 
@@ -418,6 +610,8 @@ export default function App() {
           state={state}
           dispatch={dispatch}
           onClose={handleBackToHome}
+          arenasList={arenasList}
+          currentArenaId={currentArenaId}
         />
       );
 
@@ -440,9 +634,5 @@ export default function App() {
     }
   };
 
-  return (
-    <>
-      {renderContent()}
-    </>
-  );
+  return renderContent();
 }

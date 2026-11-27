@@ -6,13 +6,15 @@ import { jsPDF } from 'jspdf';
 import { QRCodeSVG } from 'qrcode.react';
 import TGRRegistrasiDataPanel from './TGRRegistrasiDataPanel';
 import SekretarisSeniMultiPesertaPanel from './SekretarisSeniMultiPesertaPanel';
+import { generateAllMatchesReportPdf } from '../utils/generateMatchReportPdf';
 import UploadJadwalModal from './UploadJadwalModal';
 import { 
   ArrowLeft, UserPlus, Trash2, Edit3, Check, Star, Settings, 
   Timer, Play, Pause, RotateCcw, Award, CheckSquare, RefreshCw, LogIn, ChevronRight, FileSpreadsheet,
   QrCode, HelpCircle, Sun, Moon, FileText, CheckCircle, Download, Upload, Info, X, Users, Maximize2, Minimize2,
-  Image as ImageIcon, Trophy, Sparkles
+  Image as ImageIcon, Trophy, Sparkles, BarChart3, ListOrdered, Search
 } from 'lucide-react';
+import TGRJuriScoreDistributionChart from './TGRJuriScoreDistributionChart';
 
 interface TGRSekretarisPanelProps {
   state: TGRState;
@@ -25,6 +27,7 @@ interface TGRSekretarisPanelProps {
 export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onToggleTheme }: TGRSekretarisPanelProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showRegistrasiPage, setShowRegistrasiPage] = useState(false);
+  const [showEvaluationChart, setShowEvaluationChart] = useState(false);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -153,6 +156,27 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
   const [formBabak, setFormBabak] = useState(state.babak || 'FINAL');
   const [formJumlahJuri, setFormJumlahJuri] = useState<number>(state.jumlahJuri);
   const [formSelectedWaktu, setFormSelectedWaktu] = useState<number>(state.selectedWaktu);
+
+  // Modal Pilih Partai Seni
+  const [showPilihPartaiModal, setShowPilihPartaiModal] = useState(false);
+  const [partaiSearchQuery, setPartaiSearchQuery] = useState('');
+  const [customPartaiInput, setCustomPartaiInput] = useState('');
+
+  const handleSelectSeniPartai = async (partaiStr: string, pesertaId?: string) => {
+    playBeep('valid');
+    const clean = partaiStr.trim();
+    setFormPartai(clean);
+    await dispatch('TGR_UPDATE_EVENT_INFO', {
+      partai: clean
+    });
+    if (pesertaId) {
+      await dispatch('TGR_SET_ACTIVE_PESERTA', { pesertaId });
+    }
+    setSaveSuccessMsg(`Partai diatur ke ${clean}`);
+    setTimeout(() => setSaveSuccessMsg(''), 3000);
+    setShowPilihPartaiModal(false);
+    setCustomPartaiInput('');
+  };
 
   // Logo input refs
   const fileInputKiriRef = useRef<HTMLInputElement>(null);
@@ -401,6 +425,23 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
     }
   };
 
+  // Shortcut Tombol SPASI untuk Mulai / Jeda Timer Seni (TGR)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        const target = e.target as HTMLElement;
+        const tagName = target?.tagName?.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        toggleTimer();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.timerActive]);
+
   const resetTimer = async () => {
     playBeep('click');
     await dispatch('TGR_RESET_TIMER');
@@ -620,6 +661,40 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
     doc.save(`Dokumen_Hasil_Seni_TGR_${state.namaEvent.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
   };
 
+  const handleExportAllPDF = () => {
+    playBeep('click');
+    generateAllMatchesReportPdf({
+      state: {
+        namaEvent: state.namaEvent,
+        gelanggang: state.gelanggang,
+        partai: '',
+        kelas: '',
+        gender: 'Putra',
+        atletMerah: { nama: '', kontingen: '' },
+        atletBiru: { nama: '', kontingen: '' },
+        selectedWaktu: 180,
+        timerActive: false,
+        timerSeconds: 0,
+        currentBabak: 1,
+        matchStatus: 'idle',
+        logoKanan: state.logoKanan,
+        logoKiri: state.logoKiri,
+        logoTengah: null,
+        juriHits: [],
+        scores: { merah: { babak1: 0, babak2: 0, babak3: 0, total: 0 }, biru: { babak1: 0, babak2: 0, babak3: 0, total: 0 } },
+        dewanPenalties: { merah: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false }, biru: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false } },
+        directPoints: { merah: 0, biru: 0 },
+        verification: { active: false, type: null, votes: { juri1: null, juri2: null, juri3: null }, result: null },
+        lastValidScore: null,
+        winner: null
+      },
+      histories: [],
+      tgrState: state,
+      tournamentTitle: state.namaEvent,
+      gelanggang: state.gelanggang
+    });
+  };
+
   const handleToggleSessionStatus = async () => {
     playBeep('click');
     const newStatus = state.sessionStatus === 'open' ? 'closed' : 'open';
@@ -770,113 +845,134 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
         <div className="absolute top-0 right-1/4 w-[28rem] h-[28rem] rounded-full blur-[150px] pointer-events-none bg-purple-950/10" />
       )}
 
-      {/* 1. HEADER SECTION (Perfect Alignment with Tanding Secretary) */}
-      <div className={`flex justify-between items-center pb-3 border px-4 py-2 flex-shrink-0 transition-all duration-300 ${
+      {/* 1. HEADER SECTION (Responsive for Mobile, Tablet, and Laptop) */}
+      <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-2 sm:gap-2.5 pb-2.5 sm:pb-3 border px-2.5 sm:px-4 py-2 flex-shrink-0 transition-all duration-300 ${
         theme === 'dark' 
           ? 'border-slate-800/80 bg-slate-950' 
           : 'border-slate-200 bg-white shadow-sm'
       }`}>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={onBack}
-            className={`px-3 py-1.5 text-xs cursor-pointer rounded-lg transition-colors font-bold uppercase flex items-center gap-1 ${
-              theme === 'dark' 
-                ? 'bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300' 
-                : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700'
-            }`}
-          >
-            ← Keluar
-          </button>
-          <button
-            onClick={onToggleTheme}
-            className={`p-2 rounded-lg transition-colors cursor-pointer border ${
-              theme === 'dark' 
-                ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' 
-                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-600'
-            }`}
-            title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+        {/* Top bar on mobile / Left group on desktop */}
+        <div className="flex items-center justify-between lg:justify-start gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <button 
+              onClick={onBack}
+              className={`px-2.5 sm:px-3 py-1.5 text-xs cursor-pointer rounded-lg transition-colors font-bold uppercase flex items-center gap-1 ${
+                theme === 'dark' 
+                  ? 'bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300' 
+                  : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700'
+              }`}
+            >
+              ← Keluar
+            </button>
+            <button
+              onClick={onToggleTheme}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer border ${
+                theme === 'dark' 
+                  ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-amber-400' 
+                  : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-600'
+              }`}
+              title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
+            >
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+            </button>
 
-          <button
-            onClick={toggleFullscreen}
-            className={`p-2 rounded-lg transition-colors cursor-pointer border ${
-              theme === 'dark' 
-                ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' 
-                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-600'
-            }`}
-            title="Toggle Fullscreen"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-          
-          <button
-            onClick={() => { playBeep('click'); setShowQrModal(true); }}
-            className={`px-3 py-1.5 text-xs cursor-pointer rounded-lg transition-colors font-extrabold uppercase flex items-center gap-1.5 border ${
-              theme === 'dark' 
-                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-900 text-indigo-300' 
-                : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
-            }`}
-            title="Sambungkan Device / QR Barcode"
-          >
-            <QrCode className="w-4 h-4 text-indigo-500" />
-            <span>Barcode System</span>
-          </button>
+            <button
+              onClick={toggleFullscreen}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer border ${
+                theme === 'dark' 
+                  ? 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300' 
+                  : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-600'
+              }`}
+              title="Toggle Fullscreen"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+            </button>
+            
+            <button
+              onClick={() => { playBeep('click'); setShowQrModal(true); }}
+              className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs cursor-pointer rounded-lg transition-colors font-extrabold uppercase flex items-center gap-1.5 border ${
+                theme === 'dark' 
+                  ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-900 text-indigo-300' 
+                  : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
+              }`}
+              title="Sambungkan Device / QR Barcode"
+            >
+              <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500" />
+              <span className="hidden sm:inline">Barcode System</span>
+            </button>
 
-          <button
-            onClick={() => { playBeep('click'); setShowLogoEventModal(true); }}
-            className={`px-3 py-1.5 text-xs cursor-pointer rounded-lg transition-all font-extrabold uppercase flex items-center gap-1.5 border shadow-sm hover:scale-105 active:scale-95 duration-200 ${
-              theme === 'dark' 
-                ? 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-800/80 text-amber-300' 
-                : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-800'
-            }`}
-            title="Pengaturan Logo Layar Monitor & Nama Kejuaraan Seni"
-          >
-            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
-            <span className="hidden sm:inline">Logo & Nama Kejuaraan</span>
-            <span className="sm:hidden">Logo</span>
-            {(state.logoKiri || state.logoTengah || state.logoKanan) && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Logo aktif" />
-            )}
-          </button>
+            <button
+              onClick={() => { playBeep('click'); setShowLogoEventModal(true); }}
+              className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs cursor-pointer rounded-lg transition-all font-extrabold uppercase flex items-center gap-1.5 border shadow-sm hover:scale-105 active:scale-95 duration-200 ${
+                theme === 'dark' 
+                  ? 'bg-amber-950/40 hover:bg-amber-900/60 border-amber-800/80 text-amber-300' 
+                  : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-800'
+              }`}
+              title="Pengaturan Logo Layar Monitor & Nama Kejuaraan Seni"
+            >
+              <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Logo & Nama Kejuaraan</span>
+              <span className="sm:hidden">Logo</span>
+              {(state.logoKiri || state.logoTengah || state.logoKanan) && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Logo aktif" />
+              )}
+            </button>
 
-          <button
-            onClick={() => { playBeep('click'); setShowUploadJadwalModal(true); }}
-            className={`px-3 py-1.5 text-xs cursor-pointer rounded-lg transition-all font-extrabold uppercase flex items-center gap-1.5 border shadow-sm hover:scale-105 active:scale-95 duration-200 ${
-              theme === 'dark' 
-                ? 'bg-blue-950/50 hover:bg-blue-900/70 border-blue-700/80 text-blue-300' 
-                : 'bg-blue-50 hover:bg-blue-100 border-blue-300 text-blue-800'
-            }`}
-            title="Upload Jadwal Pertandingan Seni / Tanding (.xlsx / .csv)"
-            id="btn-upload-jadwal-tgr-topbar"
-          >
-            <Upload className="w-4 h-4 text-blue-400 shrink-0" />
-            <span className="hidden sm:inline">Upload Jadwal</span>
-            <span className="sm:hidden">Upload</span>
-          </button>
+            <button
+              onClick={() => { playBeep('click'); setShowUploadJadwalModal(true); }}
+              className={`px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs cursor-pointer rounded-lg transition-all font-extrabold uppercase flex items-center gap-1.5 border shadow-sm hover:scale-105 active:scale-95 duration-200 ${
+                theme === 'dark' 
+                  ? 'bg-blue-950/50 hover:bg-blue-900/70 border-blue-700/80 text-blue-300' 
+                  : 'bg-blue-50 hover:bg-blue-100 border-blue-300 text-blue-800'
+              }`}
+              title="Upload Jadwal Pertandingan Seni / Tanding (.xlsx / .csv)"
+              id="btn-upload-jadwal-tgr-topbar"
+            >
+              <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 shrink-0" />
+              <span className="hidden sm:inline">Upload Jadwal</span>
+              <span className="sm:hidden">Upload</span>
+            </button>
 
-          <div className={`h-5 w-[1px] ${theme === 'dark' ? 'bg-slate-850' : 'bg-slate-250'} mx-1`} />
-          <div className="flex items-center gap-1.5">
-            <FileText className="w-4 h-4 text-amber-500" />
-            <span className={`text-xs font-mono font-black uppercase tracking-wider ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>PANEL SEKRETARIS SENI TGR</span>
+            <div className={`hidden md:block h-5 w-[1px] ${theme === 'dark' ? 'bg-slate-850' : 'bg-slate-250'} mx-0.5`} />
+            <div className="hidden sm:flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5 text-amber-500" />
+              <span className={`text-[11px] sm:text-xs font-mono font-black uppercase tracking-wider truncate max-w-[140px] sm:max-w-none ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}`}>
+                SEKRETARIS SENI
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Select Partai for Mobile/Tablet */}
+          <div className="flex lg:hidden items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                playBeep('click');
+                setShowPilihPartaiModal(true);
+              }}
+              title="Klik untuk membuka daftar dan memilih partai seni"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-black cursor-pointer transition-all active:scale-95 shadow-sm text-[11px]"
+            >
+              <ListOrdered className="w-3 h-3 text-amber-400" />
+              <span>P{state.partai || '01'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Tab Selection */}
-        <div className={`flex p-1 rounded-xl border items-center gap-1 ${
+        {/* Tab Selection (Scrollable on HP & Tablet) */}
+        <div className={`w-full lg:w-auto overflow-x-auto no-scrollbar flex items-center gap-1 p-1 rounded-xl border shrink-0 scroll-smooth ${
           theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-100 border-slate-200'
         }`}>
           <button
             onClick={() => { playBeep('click'); setShowRegistrasiPage(true); }}
-            className="px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all bg-amber-600 text-white shadow shadow-amber-900/40 hover:bg-amber-500 hover:scale-105 active:scale-95 duration-250"
+            className="px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all bg-amber-600 text-white shadow shadow-amber-900/40 hover:bg-amber-500 hover:scale-105 active:scale-95 duration-250 whitespace-nowrap shrink-0"
           >
             🏆 REGISTRASI DATA
           </button>
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5`} />
+          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5 shrink-0`} />
           <button
             onClick={() => { playBeep('click'); setActiveTab('control'); }}
-            className={`px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all whitespace-nowrap shrink-0 ${
               activeTab === 'control' 
                 ? 'bg-amber-600 text-white shadow shadow-amber-900/40 font-extrabold' 
                 : 'text-slate-400 hover:text-slate-600 font-bold'
@@ -886,7 +982,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
           </button>
           <button
             onClick={() => { playBeep('click'); setActiveTab('roster'); }}
-            className={`px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all whitespace-nowrap shrink-0 ${
               activeTab === 'roster' 
                 ? 'bg-amber-600 text-white shadow shadow-amber-900/40 font-extrabold' 
                 : 'text-slate-400 hover:text-slate-600 font-bold'
@@ -896,7 +992,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
           </button>
           <button
             onClick={() => { playBeep('click'); setActiveTab('corrections'); }}
-            className={`px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               activeTab === 'corrections' 
                 ? 'bg-amber-600 text-white shadow shadow-amber-900/40 font-extrabold' 
                 : 'text-slate-400 hover:text-slate-600 font-bold'
@@ -909,7 +1005,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
           </button>
           <button
             onClick={() => { playBeep('click'); setActiveTab('rekap'); }}
-            className={`px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all whitespace-nowrap shrink-0 ${
               activeTab === 'rekap' 
                 ? 'bg-amber-600 text-white shadow shadow-amber-900/40 font-extrabold' 
                 : 'text-slate-400 hover:text-slate-600 font-bold'
@@ -917,7 +1013,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
           >
             📄 Cetak & Rekap
           </button>
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5`} />
+          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5 shrink-0`} />
           <button
             onClick={async () => {
               playBeep('click');
@@ -928,7 +1024,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                 action: `Mengubah sistem seni arena menjadi: ${nextMode === 'pool' ? 'Sistem Pool (Ranking Nilai)' : 'Sistem Prestasi (Bagan VS)'}`
               });
             }}
-            className={`px-3 py-1.5 text-xs uppercase font-black cursor-pointer rounded-lg transition-all flex items-center gap-1.5 border ${
+            className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded-lg transition-all flex items-center gap-1.5 border whitespace-nowrap shrink-0 ${
               state.sistemSeni === 'prestasi'
                 ? 'bg-purple-950/60 border-purple-800/80 text-purple-300 shadow-md shadow-purple-950/50'
                 : 'bg-amber-950/60 border-amber-800/80 text-amber-300 shadow-md shadow-amber-950/50'
@@ -938,7 +1034,7 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
             {state.sistemSeni === 'prestasi' ? (
               <>
                 <span className="text-purple-400">⚔️</span>
-                <span>SISTEM PRESTASI (VS)</span>
+                <span>PRESTASI (VS)</span>
               </>
             ) : (
               <>
@@ -949,11 +1045,23 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
           </button>
         </div>
 
-        {/* Sync Status Info */}
-        <div className={`text-right text-[11px] font-mono flex items-center gap-1.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-          <div>
-            PARTAI <span className={`font-black text-xs px-2 py-0.5 rounded-md shadow-sm ml-1 ${theme === 'dark' ? 'bg-amber-950/50 text-amber-400 border border-amber-900/30' : 'bg-amber-50 text-amber-800 border border-amber-200 font-extrabold'}`}>{state.partai || '01'}</span>
-          </div>
+        {/* Sync Status Info (Visible on desktop lg+) */}
+        <div className={`hidden lg:flex text-right text-[11px] font-mono items-center gap-1.5 shrink-0 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+          <button
+            type="button"
+            onClick={() => {
+              playBeep('click');
+              setShowPilihPartaiModal(true);
+            }}
+            title="Klik untuk membuka daftar dan memilih partai seni"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-black cursor-pointer transition-all active:scale-95 shadow-sm"
+          >
+            <ListOrdered className="w-3.5 h-3.5" />
+            <span>PILIH PARTAI</span>
+            <span className="bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-mono font-black text-[10px]">
+              {state.partai || '01'}
+            </span>
+          </button>
           <div className="mx-0.5">|</div>
           <div>
             GELANGGANG <span className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{state.gelanggang}</span>
@@ -992,7 +1100,8 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                   <div className="flex gap-2 w-full mt-2">
                     <button
                       onClick={toggleTimer}
-                      className={`flex-1 py-3 rounded-xl cursor-pointer font-black font-sport text-xs uppercase flex items-center justify-center gap-1.5 transition-all ${
+                      title="Tekan Spasi (Space) pada keyboard untuk Mulai / Jeda Timer"
+                      className={`flex-1 py-3 px-2 rounded-xl cursor-pointer font-black font-sport text-xs uppercase flex items-center justify-center gap-1.5 transition-all ${
                         state.timerActive
                           ? 'bg-rose-600 hover:bg-rose-500 text-white shadow'
                           : 'bg-emerald-600 hover:bg-emerald-505 text-white shadow'
@@ -1009,6 +1118,9 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                           <span>MULAI TIMER</span>
                         </>
                       )}
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/30 text-white/90 border border-white/20">
+                        SPASI
+                      </span>
                     </button>
 
                     <button
@@ -1120,8 +1232,8 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                         }`}
                       >
                         <option value="">-- PILIH PESERTA ARENA --</option>
-                        {state.pesertaList.map(p => (
-                          <option key={p.id} value={p.id}>
+                        {state.pesertaList.map((p, idx) => (
+                          <option key={`${p.id || 'p'}__${idx}`} value={p.id}>
                             No {p.noUrut} - {p.nama.toUpperCase()} ({p.kontingen.toUpperCase()} - {p.kategori}) {p.sudut ? `[${p.sudut.toUpperCase()}]` : ''} {p.pool ? `[${p.pool}]` : ''}
                           </option>
                         ))}
@@ -1478,6 +1590,39 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                           );
                         })}
                       </div>
+
+                      {/* Transparent Jury Evaluation Section (Recharts) */}
+                      <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setShowEvaluationChart(prev => !prev)}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-black font-sport uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all shadow-sm ${
+                            showEvaluationChart
+                              ? 'bg-cyan-500 border-cyan-400 text-slate-950 shadow-cyan-500/20 font-black'
+                              : 'bg-cyan-950/40 border-cyan-600/50 hover:bg-cyan-900/60 text-cyan-300'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{showEvaluationChart ? 'Tutup Grafik Evaluasi' : '📊 Grafik Distribusi Nilai Juri (Recharts)'}</span>
+                        </button>
+
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {activePeserta.finalScore !== undefined ? 'Nilai Sah Terkunci ✓' : 'Live Score Tracking'}
+                        </span>
+                      </div>
+
+                      {/* Render Recharts Distribution Chart directly */}
+                      {showEvaluationChart && (
+                        <div className="mt-3">
+                          <TGRJuriScoreDistributionChart
+                            peserta={activePeserta}
+                            jumlahJuri={state.jumlahJuri}
+                            theme={theme}
+                            title={`EVALUASI TRANSPARAN NILAI JURI - ${activePeserta.nama.toUpperCase()}`}
+                            onClose={() => setShowEvaluationChart(false)}
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-slate-850 flex items-center justify-between text-[10px] font-mono text-slate-400">
@@ -1782,11 +1927,11 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                         Belum ada peserta yang didaftarkan. Gunakan tombol 'Tambah Atlet' atau 'Seeding Sampel' di atas.
                       </div>
                     ) : (
-                      state.pesertaList.map((p) => {
+                      state.pesertaList.map((p, idx) => {
                         const isActive = p.id === state.activePesertaId;
                         return (
                           <div
-                            key={p.id}
+                            key={`${p.id || 'p'}__${idx}`}
                             className={`p-3 rounded-xl border transition-all flex items-center justify-between ${
                               isActive
                                 ? 'bg-amber-950/20 border-amber-500/80 text-white'
@@ -1929,9 +2074,9 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                         Belum ada aktivitas log yang tercatat.
                       </div>
                     ) : (
-                      state.auditLogs.map((log) => (
+                      state.auditLogs.map((log, idx) => (
                         <div 
-                          key={log.id} 
+                          key={`${log.id || 'log'}__${idx}`} 
                           className="p-2 border-b border-slate-850 text-[10px] font-mono flex items-start gap-2 text-slate-300"
                         >
                           <span className="text-amber-500 font-extrabold flex-shrink-0">
@@ -1981,9 +2126,19 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                   <button
                     onClick={handleExportPDF}
                     className="py-3 px-4 rounded-xl font-black font-sport text-xs uppercase flex items-center justify-center gap-1.5 transition-all bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer shadow-md"
+                    title="Cetak Rekapitulasi Nilai Kategori Seni (TGR)"
                   >
                     <FileText className="w-4 h-4" />
-                    <span>CETAK PDF RESMI</span>
+                    <span>CETAK PDF RESMI SENI</span>
+                  </button>
+
+                  <button
+                    onClick={handleExportAllPDF}
+                    className="py-3 px-4 rounded-xl font-black font-sport text-xs uppercase flex items-center justify-center gap-1.5 transition-all bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white cursor-pointer shadow-md"
+                    title="Cetak Buku Laporan Resmi Keseluruhan Pertandingan Lengkap"
+                  >
+                    <Award className="w-4 h-4 text-emerald-200" />
+                    <span>LAPORAN SELURUH PERTANDINGAN (PDF)</span>
                   </button>
                 </div>
               </div>
@@ -2639,6 +2794,196 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
               </div>
             </motion.div>
           </motion.div>
+        )}
+
+        {/* Modal Pilih Partai Pertandingan Seni TGR */}
+        {showPilihPartaiModal && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[9999] flex items-center justify-center p-3 sm:p-5">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="bg-slate-950 border border-slate-800 max-w-3xl w-full max-h-[90vh] flex flex-col rounded-3xl shadow-2xl relative overflow-hidden text-slate-100"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center p-4 sm:p-5 border-b border-slate-850 bg-slate-900/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
+                    <ListOrdered className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black uppercase tracking-tight text-white flex items-center gap-2">
+                      <span>PILIH PARTAI SENI (TGR)</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Pilih partai atau peserta aktif untuk dimuat ke layar dan juri seni
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono">
+                    <span className="text-slate-400">Partai Aktif:</span>
+                    <span className="font-black text-amber-400">{state.partai || '01'}</span>
+                  </div>
+                  <button
+                    onClick={() => { playBeep('click'); setShowPilihPartaiModal(false); }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 cursor-pointer transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Toolbar: Search & Direct Custom Partai Input */}
+              <div className="p-4 border-b border-slate-850 bg-slate-900/30 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={partaiSearchQuery}
+                    onChange={(e) => setPartaiSearchQuery(e.target.value)}
+                    placeholder="Cari nama atlet, kontingen, kategori, no urut..."
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-slate-900 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none font-bold"
+                  />
+                  {partaiSearchQuery && (
+                    <button
+                      onClick={() => setPartaiSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Custom Partai Input */}
+                <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 pl-2.5 rounded-xl border border-amber-500/30">
+                  <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">Atur Partai:</span>
+                  <input
+                    type="text"
+                    value={customPartaiInput}
+                    onChange={(e) => setCustomPartaiInput(e.target.value)}
+                    placeholder="Contoh: Partai 2"
+                    className="w-28 py-1 px-2 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white font-mono font-bold outline-none focus:border-amber-400"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && customPartaiInput.trim()) {
+                        handleSelectSeniPartai(customPartaiInput);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (customPartaiInput.trim()) {
+                        handleSelectSeniPartai(customPartaiInput);
+                      }
+                    }}
+                    disabled={!customPartaiInput.trim()}
+                    className="py-1 px-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:pointer-events-none text-slate-950 font-black text-xs uppercase rounded-lg transition-all cursor-pointer"
+                  >
+                    Terapkan
+                  </button>
+                </div>
+              </div>
+
+              {/* List of participants */}
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar max-h-[58vh]">
+                {state.pesertaList.length === 0 ? (
+                  <div className="text-center py-10 bg-slate-900/30 rounded-2xl border border-dashed border-slate-800 p-6">
+                    <p className="text-sm font-bold text-slate-300">Belum Ada Peserta Seni Terdaftar</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Gunakan kolom "Atur Partai" di atas untuk mengubah nomor partai gelanggang secara langsung.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {state.pesertaList
+                      .filter(p => {
+                        if (!partaiSearchQuery.trim()) return true;
+                        const q = partaiSearchQuery.toLowerCase();
+                        return (
+                          p.nama.toLowerCase().includes(q) ||
+                          p.kontingen.toLowerCase().includes(q) ||
+                          p.kategori.toLowerCase().includes(q) ||
+                          p.noUrut.toString().includes(q) ||
+                          (p.partai && p.partai.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((p, idx) => {
+                        const isActive = state.activePesertaId === p.id;
+                        const targetPartaiLabel = p.partai || `Partai ${p.noUrut}`;
+
+                        return (
+                          <div
+                            key={`${p.id || 'p'}__${idx}`}
+                            className={`p-3 rounded-2xl border transition-all ${
+                              isActive
+                                ? 'bg-purple-950/40 border-purple-500 shadow-md ring-1 ring-purple-500/40'
+                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                            } flex flex-col justify-between`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 font-mono font-black text-[10px]">
+                                  No {p.noUrut} • {targetPartaiLabel}
+                                </span>
+                                {isActive ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-500 text-white animate-pulse">
+                                    ★ AKTIF
+                                  </span>
+                                ) : p.status === 'Sudah Menilai' || p.finalScore !== undefined ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-800 text-emerald-400 border border-emerald-900/40">
+                                    ✓ NILAI: {p.finalScore !== undefined ? p.finalScore.toFixed(3) : '-'}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-800 text-slate-400">
+                                    TERJADWAL
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="font-black text-white text-xs uppercase truncate">
+                                {p.nama}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono truncate">
+                                {p.kontingen} • {p.kategori}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSelectSeniPartai(targetPartaiLabel, p.id)}
+                              className={`mt-2.5 w-full py-1.5 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98] ${
+                                isActive
+                                  ? 'bg-purple-600 text-white shadow-sm'
+                                  : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700'
+                              }`}
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>{isActive ? 'Sedang Tampil (Pilih Ulang)' : 'Pilih Partai & Peserta Ini'}</span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-3.5 border-t border-slate-850 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
+                <span className="font-mono text-[11px]">
+                  Total Peserta: <strong className="text-white">{state.pesertaList.length}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { playBeep('click'); setShowPilihPartaiModal(false); }}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-750 text-white font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
 
         {/* Modal Upload Jadwal Pertandingan */}

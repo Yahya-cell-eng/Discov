@@ -18,7 +18,8 @@ import {
   Wifi, 
   HelpCircle,
   Sparkles,
-  Layers
+  Layers,
+  Copy
 } from 'lucide-react';
 import { playBeep } from '../utils/sound';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -35,23 +36,41 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
     isIOS, 
     isInIframe, 
     install, 
-    openInNewTab 
+    openInNewTab,
+    copyAppUrl
   } = usePWAInstall();
 
   const [activeTab, setActiveTab] = useState<'otomatis' | 'panduan'>('otomatis');
   const [installSuccess, setInstallSuccess] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const handleInstallClick = async () => {
     playBeep('valid');
-    const success = await install();
-    if (success) {
-      setInstallSuccess(true);
+    try {
+      const success = await install();
+      if (success) {
+        setInstallSuccess(true);
+      } else {
+        setActiveTab('panduan');
+      }
+    } catch (e) {
+      console.warn('Install error:', e);
+      setActiveTab('panduan');
     }
   };
 
   const handleOpenExternal = () => {
     playBeep('click');
     openInNewTab();
+  };
+
+  const handleCopyLink = async () => {
+    playBeep('click');
+    const ok = await copyAppUrl();
+    if (ok) {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2500);
+    }
   };
 
   if (!isOpen) return null;
@@ -124,14 +143,23 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
               <p className="text-[11px] text-amber-200/90 mb-2.5">
                 Fitur pemasangan aplikasi (PWA) memerlukan akses jendela mandiri browser. Klik tombol di bawah untuk membuka aplikasi di tab browser penuh agar prompt pasang aktif:
               </p>
-              <button
-                id="open-in-new-tab-install-btn"
-                onClick={handleOpenExternal}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-500 hover:from-amber-500 hover:to-orange-400 text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <ExternalLink className="w-4 h-4" />
-                <span>Buka di Tab Baru untuk Memasang</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                <button
+                  id="open-in-new-tab-install-btn"
+                  onClick={handleOpenExternal}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-500 hover:from-amber-500 hover:to-orange-400 text-white font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Buka di Tab Baru</span>
+                </button>
+                <button
+                  onClick={handleCopyLink}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/50 text-amber-300 font-black text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  {copySuccess ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-400" />}
+                  <span>{copySuccess ? 'Tautan Tersalin!' : 'Salin Tautan'}</span>
+                </button>
+              </div>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Oxanium:wght@400;600;700;800;900&family=Orbitron:wght@500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Oxanium:wght@400;600;700;800;900&family=Orbitron:wght@500;700;900&family=Syne:wght@700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -6,6 +6,220 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-sport: "Oxanium", sans-serif;
   --font-orbitron: "Orbitron", sans-serif;
+  --font-syne: "Syne", sans-serif;
+}
+
+/* Technical System / Variation 5 Styles */
+.technical-grid-bg {
+  background-color: #0c0c0e;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+.technical-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  opacity: 0.6;
+}
+
+.technical-system-root {
+  --bg: #0c0c0e;
+  --ink: #ffffff;
+  --ink-faint: rgba(255, 255, 255, 0.1);
+  --accent: #00f2ff;
+  --red-corner: #ff3b3b;
+  --blue-corner: #3b82f6;
+  --warning: #ffcc00;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+}
+
+.technical-system-root .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  opacity: 0.55;
+}
+
+.technical-system-root .mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.technical-system-root .athlete-card {
+  padding: 20px;
+  border: 2px solid var(--ink-faint);
+  position: relative;
+  border-radius: 4px;
+}
+
+.technical-system-root .athlete-card.red {
+  border-color: var(--red-corner);
+  background: linear-gradient(135deg, rgba(255,59,59,0.12) 0%, transparent 100%);
+}
+
+.technical-system-root .athlete-card.blue {
+  border-color: var(--blue-corner);
+  background: linear-gradient(225deg, rgba(59,130,246,0.12) 0%, transparent 100%);
+}
+
+.technical-system-root .score-display {
+  font-family: 'Syne', sans-serif;
+  font-size: 5.5rem;
+  line-height: 0.9;
+  margin: 6px 0;
+  font-weight: 800;
+}
+
+.technical-system-root .athlete-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.4rem;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+.technical-system-root .controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.technical-system-root .btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--ink-faint);
+  color: var(--ink);
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s ease-in-out;
+}
+
+.technical-system-root .btn:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: var(--ink);
+}
+
+.technical-system-root .btn-primary {
+  background: var(--ink);
+  color: var(--bg);
+  border: none;
+}
+
+.technical-system-root .btn-primary:hover {
+  background: #e2e8f0;
+  color: var(--bg);
+}
+
+.technical-system-root .btn-warning {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: rgba(255,204,0,0.08);
+}
+
+.technical-system-root .btn-warning:hover {
+  background: rgba(255,204,0,0.18);
+  border-color: #ffe066;
+}
+
+.technical-system-root .btn-danger {
+  border-color: var(--red-corner);
+  color: var(--red-corner);
+  background: rgba(255,59,59,0.08);
+}
+
+.technical-system-root .btn-danger:hover {
+  background: rgba(255,59,59,0.2);
+}
+
+.technical-system-root .timer-box {
+  border: 1px solid var(--ink);
+  padding: 20px;
+  text-align: center;
+  background: rgba(255,255,255,0.02);
+  border-radius: 4px;
+}
+
+.technical-system-root .timer-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 3.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.technical-system-root .partai-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.015);
+}
+
+.technical-system-root .babak-nav {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.technical-system-root .babak-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink-faint);
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.03);
+  color: var(--ink);
+  transition: all 0.15s;
+}
+
+.technical-system-root .babak-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 800;
+}
+
+.technical-system-root .mini-btn {
+  font-size: 0.65rem;
+  padding: 6px 12px;
+  border: 1px solid var(--ink-faint);
+  background: transparent;
+  color: var(--ink);
+  text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.technical-system-root .mini-btn:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.3);
 }
 
 /* Seamless Hardware-Accelerated Marquee for Tournament Running Header */
@@ -173,5 +387,38 @@
 .gsi-material-button:active {
   background-color: #eeeeee;
   box-shadow: none;
+}
+
+/* Hide on Fullscreen */
+:fullscreen .hide-on-fullscreen,
+:-webkit-full-screen .hide-on-fullscreen,
+:-moz-full-screen .hide-on-fullscreen,
+:-ms-fullscreen .hide-on-fullscreen {
+  display: none !important;
+}
+
+/* Custom Smooth Scrollbar for Panels */
+.custom-scrollbar {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
 }
 

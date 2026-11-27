@@ -91,8 +91,25 @@ export function usePWAInstall() {
   }, [deferredPrompt]);
 
   const openInNewTab = useCallback(() => {
-    const url = window.location.href;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    try {
+      const url = window.location.href;
+      const win = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        window.location.assign(url);
+      }
+    } catch (e) {
+      console.warn('Cannot open in new tab:', e);
+    }
+  }, []);
+
+  const copyAppUrl = useCallback(async (): Promise<boolean> => {
+    try {
+      const url = window.location.href;
+      await navigator.clipboard.writeText(url);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   return {
@@ -103,5 +120,6 @@ export function usePWAInstall() {
     deferredPrompt,
     install,
     openInNewTab,
+    copyAppUrl,
   };
 }

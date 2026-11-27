@@ -4,9 +4,10 @@ import {
   Printer, Download, Calendar, Clock, MapPin, FileText, CheckCircle2, 
   ListOrdered, Search, Filter, X, Shield, Award, Users, ChevronRight, Eye, RefreshCw,
   Sparkles, Layers, CheckSquare, Trophy, Upload, Plus, Edit3, Trash2, Wand2, Copy,
-  FileSpreadsheet, AlertCircle, FileUp, Image as ImageIcon
+  FileSpreadsheet, AlertCircle, FileUp, Image as ImageIcon, GitBranch
 } from 'lucide-react';
-import { MatchState, TGRState, MatchHistory, BaganCategory, BaganMatch } from '../types';
+import { MatchState, TGRState, MatchHistory, BaganCategory, BaganMatch, GelanggangInfo } from '../types';
+import AutoBracketArenaGeneratorModal from './AutoBracketArenaGeneratorModal';
 import { playBeep } from '../utils/sound';
 import safeHtml2canvas from '../utils/safeHtml2canvas';
 import { jsPDF } from 'jspdf';
@@ -34,6 +35,8 @@ interface PortalSekretarisJadwalModalProps {
   onOpenSekretarisTanding: () => void;
   onOpenSekretarisSeni: () => void;
   dispatch?: (type: string, payload?: any) => void;
+  arenasList?: GelanggangInfo[];
+  currentArenaId?: string;
 }
 
 export type ScheduleItemType = 'tanding' | 'seni';
@@ -69,12 +72,30 @@ export default function PortalSekretarisJadwalModal({
   histories = [],
   onOpenSekretarisTanding,
   onOpenSekretarisSeni,
-  dispatch
+  dispatch,
+  arenasList = [],
+  currentArenaId = 'arena_1'
 }: PortalSekretarisJadwalModalProps) {
   // Mode: 'all' (Jadwal Jadi Satu), 'tanding', 'seni', 'smart_input' (Input Data Otomatis)
   const [activeTab, setActiveTab] = useState<'all' | 'tanding' | 'seni' | 'smart_input'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'selesai' | 'terjadwal'>('all');
+  const [showAutoBracketArenaModal, setShowAutoBracketArenaModal] = useState(false);
+
+  const effectiveArenasList: GelanggangInfo[] = useMemo(() => {
+    if (arenasList && arenasList.length > 0) return arenasList;
+    const saved = localStorage.getItem('silat_multi_gelanggang_list');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return [
+      { id: 'arena_1', nama: 'Gelanggang 1', kode: '1', modeAktif: 'tanding', status: 'aktif' as const },
+      { id: 'arena_2', nama: 'Gelanggang 2', kode: '2', modeAktif: 'tanding', status: 'aktif' as const }
+    ];
+  }, [arenasList]);
 
   // Custom Header States matching official tournament format (Jombang Pencak Silat Championship - II)
   const [headerTitle, setHeaderTitle] = useState(state?.namaEvent || "JOMBANG PENCAK SILAT CHAMPIONSHIP - II");
@@ -346,7 +367,17 @@ export default function PortalSekretarisJadwalModal({
     // Also directly apply Seni to schedule and Sekretaris Seni
     if (seniPesertaList.length > 0) {
       localStorage.setItem('tgr_peserta_list', JSON.stringify(seniPesertaList));
-      localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(seniPesertaList));
+      const normalizedSeniRegistrasi = seniPesertaList.map((p, idx) => ({
+        id: p.id,
+        nama: p.nama,
+        kontingen: p.kontingen || 'Umum',
+        kelas: p.kategori || 'Tunggal',
+        usia: p.usia || 'Dewasa',
+        gender: p.gender === 'Putri' ? 'Putri' : 'Putra',
+        pool: p.poolName || (p as any).pool || 'Pool A',
+        noUndian: (p as any).noUndian || p.noUrut || idx + 1
+      }));
+      localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(normalizedSeniRegistrasi));
       if (dispatch) {
         dispatch('UPDATE_TGR_PESERTA_LIST', { pesertaList: seniPesertaList });
         dispatch('TGR_UPDATE_PESERTA', { action: 'sync_list', pesertaList: seniPesertaList });
@@ -728,6 +759,19 @@ export default function PortalSekretarisJadwalModal({
               <span>Input Data Otomatis</span>
             </button>
 
+            {/* Auto Multi-Gelanggang Generator (Venue Consistency Guarantee) */}
+            <button
+              onClick={() => {
+                playBeep('click');
+                setShowAutoBracketArenaModal(true);
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.35)] border border-emerald-400/40 hover:brightness-110"
+              title="Generator Bagan & Multi-Gelanggang Otomatis (Jaminan Semi & Final di Gelanggang Sama)"
+            >
+              <GitBranch className="w-4 h-4 text-emerald-200" />
+              <span>Multi-Gelanggang Otomatis</span>
+            </button>
+
             {/* Filter to Tanding only */}
             <button
               onClick={() => {
@@ -1070,7 +1114,7 @@ export default function PortalSekretarisJadwalModal({
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 font-mono">
                         {parsedPreviewList.map((item, idx) => (
-                          <tr key={item.id} className="hover:bg-slate-800/40">
+                          <tr key={`${item.id || 'prev'}__${idx}`} className="hover:bg-slate-800/40">
                             <td className="py-2 px-3 text-center text-slate-500">{idx + 1}</td>
                             <td className="py-2 px-3 font-bold text-white uppercase">{item.nama}</td>
                             <td className="py-2 px-3 font-semibold text-slate-300 uppercase">{item.kontingen}</td>
@@ -1473,6 +1517,21 @@ export default function PortalSekretarisJadwalModal({
           }
         }}
       />
+
+      {/* AUTO BRACKET & MULTI-ARENA ALLOCATOR MODAL */}
+      {showAutoBracketArenaModal && (
+        <AutoBracketArenaGeneratorModal
+          isOpen={showAutoBracketArenaModal}
+          onClose={() => setShowAutoBracketArenaModal(false)}
+          theme="dark"
+          arenasList={effectiveArenasList}
+          currentArenaId={currentArenaId}
+          dispatch={dispatch}
+          onSuccessApply={() => {
+            // Data applied to backend and storage
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { playBeep } from '../utils/sound';
 import safeHtml2canvas from '../utils/safeHtml2canvas';
 import { jsPDF } from 'jspdf';
 import { generateSchedulePdf, exportScheduleToExcel, printScheduleElement, ScheduleMatchRow, ScheduleMetadata } from '../utils/generateSchedulePdf';
+import { generateAllMatchesReportPdf } from '../utils/generateMatchReportPdf';
 import AturUrutanPartaiModal from './AturUrutanPartaiModal';
 import EditJadwalPartaiModal from './EditJadwalPartaiModal';
 import UploadJadwalModal from './UploadJadwalModal';
@@ -110,7 +111,7 @@ export default function JadwalTab({ theme, state, tgrState, dispatch }: JadwalTa
   const handleApplyUploadedSchedule = (params: {
     tandingCategories: BaganCategory[];
     seniPesertaList: TGRPeserta[];
-    targetArena: 'current' | 'all';
+    targetArena: 'current' | 'all' | string;
     mode: 'tanding' | 'seni' | 'all';
     rawSummary: any;
   }) => {
@@ -1019,7 +1020,7 @@ export default function JadwalTab({ theme, state, tgrState, dispatch }: JadwalTa
 
                     return (
                       <tr 
-                        key={m.uniqueId}
+                        key={`${m.uniqueId}__${idx}`}
                         onClick={() => toggleMatchSelection(m.uniqueId)}
                         className={`border-b border-slate-900/60 hover:bg-slate-900/40 cursor-pointer ${
                           isSelected ? 'bg-slate-900/20' : 'opacity-60'
@@ -1156,6 +1157,26 @@ export default function JadwalTab({ theme, state, tgrState, dispatch }: JadwalTa
               </>
             )}
           </button>
+
+          {/* Laporan Seluruh Pertandingan PDF */}
+          <button
+            onClick={() => {
+              playBeep('valid');
+              generateAllMatchesReportPdf({
+                state,
+                histories: (state as any).histories || [],
+                baganData: (state as any).baganCategories || state.baganData,
+                tgrState,
+                tournamentTitle: headerSubtitle || state.namaEvent,
+                gelanggang: gelanggang || state.gelanggang
+              });
+            }}
+            className="w-full mt-2 py-2.5 px-3 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-2 transition-all cursor-pointer bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-800 hover:from-indigo-600 hover:to-purple-600 text-white shadow-lg shadow-indigo-950/40 border border-indigo-400/30 active:scale-[0.98]"
+            title="Unduh Buku Laporan Resmi Seluruh Pertandingan Lengkap (Semua Partai Tanding, Kategori Seni & Medali) dalam format PDF"
+          >
+            <FileText className="w-4 h-4 text-indigo-300" />
+            <span>Laporan Seluruh Pertandingan (PDF)</span>
+          </button>
         </div>
       </div>
 
@@ -1264,7 +1285,7 @@ export default function JadwalTab({ theme, state, tgrState, dispatch }: JadwalTa
                       selectedMatchesToPrint.map((item, index) => {
                         const match = item.match;
                         return (
-                          <tr key={item.uniqueId} className="border border-black text-[11px] text-black bg-white">
+                          <tr key={`${item.uniqueId}__${index}`} className="border border-black text-[11px] text-black bg-white">
                             {/* NO */}
                             <td className="border border-black py-2.5 text-center font-bold text-black bg-white">
                               {index + 1}
@@ -1478,7 +1499,7 @@ export default function JadwalTab({ theme, state, tgrState, dispatch }: JadwalTa
                         const isWinnerBiru = match.winner === 'biru';
 
                         return (
-                          <tr key={item.uniqueId} className="border-b border-black text-[11px] bg-white">
+                          <tr key={`${item.uniqueId}__${index}`} className="border-b border-black text-[11px] bg-white">
                             {/* No Index */}
                             <td className="border-r-2 border-black py-2 font-bold bg-slate-50 text-black">
                               {index + 1}

@@ -165,7 +165,7 @@ export default function LandscapeWrapper({ children, showToggle = true }: Landsc
       <div
         className={`w-full h-full transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${
           isRotated
-            ? 'origin-top-left -rotate-95 translate-y-[100dvh] fixed'
+            ? 'origin-top-left -rotate-90 translate-y-[100dvh] fixed'
             : ''
         }`}
         style={{
@@ -178,15 +178,15 @@ export default function LandscapeWrapper({ children, showToggle = true }: Landsc
         </div>
       </div>
 
-      {/* Floating Action Controls in the screen corner */}
+      {/* Floating Action Controls in the screen corner - responsive & touch friendly */}
       {showToggle && (
-        <div className="fixed bottom-4 right-4 z-[9999] flex items-center gap-2">
+        <div className="fixed bottom-2 right-2 sm:bottom-4 sm:right-4 z-[9999] flex items-center gap-1.5 sm:gap-2 scale-90 sm:scale-100 origin-bottom-right">
           {controlsVisible ? (
             <>
               {/* Fullscreen Option */}
               <button
                 onClick={toggleFullscreen}
-                className="p-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg shadow-lg backdrop-blur-md border border-slate-800 transition-all hover:scale-105 active:scale-95 flex items-center justify-center cursor-pointer"
+                className="p-2 sm:p-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg shadow-lg backdrop-blur-md border border-slate-800 transition-all hover:scale-105 active:scale-95 flex items-center justify-center cursor-pointer"
                 title="Toggle Layar Penuh"
               >
                 {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -195,10 +195,10 @@ export default function LandscapeWrapper({ children, showToggle = true }: Landsc
               {/* Core Rotation Action */}
               <button
                 onClick={handleToggle}
-                className="p-3 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-slate-800 hover:to-slate-700 text-slate-250 border border-slate-700 rounded-lg shadow-xl hover:text-white transition-all hover:scale-105 active:scale-95 flex items-center gap-2 font-black text-[10px] tracking-wider uppercase backdrop-blur-md cursor-pointer"
+                className="p-2 sm:p-2.5 px-2.5 sm:px-3 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-slate-800 hover:to-slate-700 text-slate-200 border border-slate-700 rounded-lg shadow-xl hover:text-white transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 font-black text-[10px] tracking-wider uppercase backdrop-blur-md cursor-pointer"
                 title="Rotasi Layar ke Landscape"
               >
-                <RotateCw className={`w-4 h-4 text-cyan-405 transition-transform duration-700 ease-out-back ${isRotated ? 'rotate-180' : ''}`} />
+                <RotateCw className={`w-3.5 h-3.5 text-cyan-400 transition-transform duration-700 ease-out-back ${isRotated ? 'rotate-180' : ''}`} />
                 <span className="hidden sm:inline">Rotasi Layar</span>
               </button>
 
@@ -208,10 +208,10 @@ export default function LandscapeWrapper({ children, showToggle = true }: Landsc
                   playBeep('click');
                   setControlsVisible(false);
                 }}
-                className="p-2.5 bg-slate-900/95 hover:bg-slate-850 text-slate-400 hover:text-white rounded-lg shadow-lg backdrop-blur-md border border-slate-800 transition-all hover:scale-105 active:scale-95 flex items-center justify-center cursor-pointer"
+                className="p-2 sm:p-2.5 bg-slate-900/95 hover:bg-slate-850 text-slate-400 hover:text-white rounded-lg shadow-lg backdrop-blur-md border border-slate-800 transition-all hover:scale-105 active:scale-95 flex items-center justify-center cursor-pointer"
                 title="Sembunyikan Menu"
               >
-                <EyeOff className="w-4 h-4" />
+                <EyeOff className="w-3.5 h-3.5" />
               </button>
             </>
           ) : (
@@ -221,10 +221,10 @@ export default function LandscapeWrapper({ children, showToggle = true }: Landsc
                 playBeep('click');
                 setControlsVisible(true);
               }}
-              className="p-2 bg-slate-900/40 hover:bg-slate-800 text-slate-450 hover:text-white rounded-full shadow-md backdrop-blur-sm border border-slate-800/35 hover:border-slate-705 transition-all opacity-40 hover:opacity-100 flex items-center justify-center cursor-pointer"
+              className="p-2 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white rounded-full shadow-md backdrop-blur-sm border border-slate-800/50 hover:border-slate-700 transition-all opacity-60 hover:opacity-100 flex items-center justify-center cursor-pointer"
               title="Tampilkan Menu"
             >
-              <Eye className="w-4 h-4" />
+              <Eye className="w-3.5 h-3.5" />
             </button>
           )}
         </div>

@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Download, Check } from 'lucide-react';
+import { Download, Check, Smartphone, Sparkles } from 'lucide-react';
 import { playBeep } from '../utils/sound';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import InstallAppModal from './InstallAppModal';
@@ -16,15 +16,10 @@ interface PWAInstallButtonProps {
 
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   className = '',
-  variant = 'badge'
+  variant = 'button'
 }) => {
-  const { isInstalled, isInstallable, isInIframe } = usePWAInstall();
+  const { isInstalled, isInstallable } = usePWAInstall();
   const [showModal, setShowModal] = useState(false);
-
-  // If already running in standalone mode, optionally hide or show installed badge
-  if (isInstalled) {
-    return null;
-  }
 
   const handleClick = () => {
     playBeep('click');
@@ -35,35 +30,45 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
     <>
       {variant === 'compact' ? (
         <button
-          id="pwa-install-compact-btn"
           onClick={handleClick}
-          className={`inline-flex items-center justify-center p-2 rounded-xl bg-pink-950/80 hover:bg-pink-900 border border-pink-500/50 text-pink-300 shadow-sm transition-all cursor-pointer ${className}`}
           title="Pasang Aplikasi (PWA Standalone)"
-          aria-label="Pasang Aplikasi"
+          className={`p-1.5 rounded-full border border-blue-500/50 bg-blue-950/70 hover:bg-blue-900/80 text-blue-300 shadow transition-all cursor-pointer ${className}`}
         >
-          <Download className="w-4 h-4 text-pink-400" />
+          <Download className="w-3.5 h-3.5 text-cyan-400" />
         </button>
-      ) : variant === 'button' ? (
+      ) : variant === 'badge' ? (
         <button
-          id="pwa-install-full-btn"
           onClick={handleClick}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-950/50 transition-all cursor-pointer active:scale-95 ${className}`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold uppercase transition-all cursor-pointer ${
+            isInstalled
+              ? 'border border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
+              : 'border border-cyan-500/50 bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+          } ${className}`}
         >
-          <Download className="w-4 h-4" />
-          <span>Pasang Aplikasi</span>
+          {isInstalled ? (
+            <>
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span>TERPASANG</span>
+            </>
+          ) : (
+            <>
+              <Download className="w-3 h-3 text-cyan-400 animate-bounce" />
+              <span>PASANG APLIKASI</span>
+            </>
+          )}
         </button>
       ) : (
         <button
-          id="pwa-install-badge-btn"
           onClick={handleClick}
-          className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-pink-500/60 bg-gradient-to-r from-fuchsia-950/90 via-pink-950/80 to-purple-950/90 hover:from-pink-900 hover:to-purple-900 text-[10px] font-mono tracking-wider font-extrabold uppercase text-pink-300 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition-all cursor-pointer ${className}`}
-          title="Pasang aplikasi ke layar utama Laptop / HP (PWA Standalone)"
+          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-blue-500/60 bg-gradient-to-r from-blue-950/80 via-indigo-950/80 to-cyan-950/80 hover:from-blue-900 hover:to-indigo-900 text-xs font-mono font-bold uppercase text-cyan-300 shadow-[0_0_15px_rgba(37,99,235,0.3)] transition-all cursor-pointer active:scale-95 ${className}`}
+          title="Pasang aplikasi ke Layar Utama / Desktop tanpa instalasi file eksternal"
         >
-          <Download className="w-3.5 h-3.5 text-pink-400" />
-          <span>PASANG APLIKASI</span>
+          <Download className="w-3.5 h-3.5 text-cyan-400" />
+          <span>{isInstalled ? 'APLIKASI TERPASANG' : 'PASANG APLIKASI'}</span>
         </button>
       )}
 
+      {/* Modal Dialog */}
       <InstallAppModal
         isOpen={showModal}
         onClose={() => setShowModal(false)}

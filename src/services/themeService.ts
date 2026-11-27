@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export type ThemePaletteId = 
   | 'default_dark' 
@@ -11,7 +11,8 @@ export type ThemePaletteId =
   | 'high_contrast' 
   | 'professional_navy' 
   | 'crimson' 
-  | 'emerald';
+  | 'emerald'
+  | 'technical_system';
 
 export interface ThemePaletteConfig {
   id: ThemePaletteId;
@@ -134,30 +135,30 @@ export const THEME_PALETTES: Record<ThemePaletteId, ThemePaletteConfig> = {
   professional_navy: {
     id: 'professional_navy',
     name: 'Professional Navy',
-    label: 'Professional Navy & Gold',
+    label: 'Professional Navy & Ice Cyan (Official Tournament)',
     tagline: 'Deep royal navy blue with gold foil & ice cyan accents for prestigious championships',
     isDark: true,
-    accentColor: '#38bdf8',
+    accentColor: '#0091ff',
     preview: {
-      bg: '#050f24',
-      card: '#0a1c3d',
-      border: '#1e3a8a',
-      text: '#f0f9ff',
-      blueAccent: '#0284c7',
-      redAccent: '#e11d48',
-      goldAccent: '#f59e0b'
+      bg: '#03102c',
+      card: '#02132e',
+      border: '#0091ff',
+      text: '#ffffff',
+      blueAccent: '#004bbd',
+      redAccent: '#d5001c',
+      goldAccent: '#ffd200'
     },
     classes: {
-      bg: 'bg-[#050f24]',
-      card: 'bg-[#0a1c3d]',
-      cardSubtle: 'bg-[#07152e]',
-      border: 'border-[#1e3a8a]',
-      borderAccent: 'border-sky-400/50',
-      textPrimary: 'text-sky-50',
-      textSecondary: 'text-sky-200/70',
-      headerBg: 'bg-[#0b224d]',
-      blueCornerBg: 'bg-sky-600',
-      redCornerBg: 'bg-rose-600'
+      bg: 'bg-[#03102c]',
+      card: 'bg-[#02132e]',
+      cardSubtle: 'bg-[#071d3d]',
+      border: 'border-[#0091ff]',
+      borderAccent: 'border-[#00e5ff]',
+      textPrimary: 'text-white',
+      textSecondary: 'text-slate-300',
+      headerBg: 'bg-[#03102c]',
+      blueCornerBg: 'bg-[#004bbd]',
+      redCornerBg: 'bg-[#d5001c]'
     }
   },
   crimson: {
@@ -217,21 +218,55 @@ export const THEME_PALETTES: Record<ThemePaletteId, ThemePaletteConfig> = {
       blueCornerBg: 'bg-teal-600',
       redCornerBg: 'bg-red-600'
     }
+  },
+  technical_system: {
+    id: 'technical_system',
+    name: 'Technical System',
+    label: 'Technical System (Variation 5)',
+    tagline: 'Cyber-industrial apparatus console with dot matrix grid, high-tech cyan accents & Syne typography',
+    isDark: true,
+    accentColor: '#00f2ff',
+    preview: {
+      bg: '#0c0c0e',
+      card: '#141418',
+      border: '#27272a',
+      text: '#ffffff',
+      blueAccent: '#3b82f6',
+      redAccent: '#ff3b3b',
+      goldAccent: '#ffcc00'
+    },
+    classes: {
+      bg: 'bg-[#0c0c0e]',
+      card: 'bg-[#141418]',
+      cardSubtle: 'bg-[#0e0e12]',
+      border: 'border-white/10',
+      borderAccent: 'border-cyan-400',
+      textPrimary: 'text-white',
+      textSecondary: 'text-zinc-400',
+      headerBg: 'bg-[#101014]',
+      blueCornerBg: 'bg-blue-600',
+      redCornerBg: 'bg-red-600'
+    }
   }
 };
 
 const PALETTE_STORAGE_KEY = 'silat_theme_palette';
 
 export function getStoredPalette(): ThemePaletteId {
-  if (typeof window === 'undefined') return 'default_dark';
+  if (typeof window === 'undefined') return 'professional_navy';
   const stored = localStorage.getItem(PALETTE_STORAGE_KEY) as ThemePaletteId;
   if (stored && THEME_PALETTES[stored]) {
+    // If stored was legacy technical_system, upgrade to professional_navy for the official tournament theme
+    if (stored === 'technical_system') {
+      localStorage.setItem(PALETTE_STORAGE_KEY, 'professional_navy');
+      return 'professional_navy';
+    }
     return stored;
   }
   // Fallback to legacy theme key
   const legacyTheme = localStorage.getItem('theme');
   if (legacyTheme === 'light') return 'default_light';
-  return 'default_dark';
+  return 'professional_navy';
 }
 
 export function setStoredPalette(paletteId: ThemePaletteId) {

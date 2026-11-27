@@ -4,10 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Skoring Pencak Silat</title>
-    <meta name="description" content="Sistem skoring digital real-time untuk pertandingan Pencak Silat lengkap dengan Admin Panel, manajemen jadwal dan sekretaris otomatis, serta sinkronisasi multi-gelanggang." />
+    <meta name="description" content="YK Digital Scoring Pencak Silat: Sistem skoring digital real-time untuk pertandingan Tanding dan Seni IPSI dengan automated tournament bracket generator, sinkronisasi multi-gelanggang, dan panel ofisial lengkap." />
+    <meta property="og:type" content="website" />
     <meta property="og:title" content="Skoring Pencak Silat" />
-    <meta property="og:description" content="Sistem skoring digital real-time untuk pertandingan Pencak Silat lengkap dengan Admin Panel, manajemen jadwal dan sekretaris otomatis, serta sinkronisasi multi-gelanggang." />
+    <meta property="og:description" content="YK Digital Scoring Pencak Silat: Sistem skoring digital real-time untuk pertandingan Tanding dan Seni IPSI dengan automated tournament bracket generator, sinkronisasi multi-gelanggang, dan panel ofisial lengkap." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Skoring Pencak Silat" />
+    <meta name="twitter:description" content="YK Digital Scoring Pencak Silat: Sistem skoring digital real-time untuk pertandingan Tanding dan Seni IPSI dengan automated tournament bracket generator, sinkronisasi multi-gelanggang, dan panel ofisial lengkap." />
     
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700;900&family=Syne:wght@700;800;900&family=JetBrains+Mono:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <!-- PWA & Mobile Web App Meta Tags -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#05112e" />
@@ -22,26 +31,16 @@
   <body class="bg-[#020512] text-slate-100 overflow-x-hidden antialiased select-none">
     <div id="root"></div>
     <script>
-      // Register Service Worker for PWA
+      // Daftarkan Service Worker resmi untuk dukungan PWA offline dan instalasi standalone
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .then(reg => {
-              console.log('[PWA] Service Worker aktif dengan scope:', reg.scope);
-              // Check for SW updates periodically
-              reg.onupdatefound = () => {
-                const installingWorker = reg.installing;
-                if (installingWorker) {
-                  installingWorker.onstatechange = () => {
-                    if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                      console.log('[PWA] Versi baru aplikasi tersedia.');
-                    }
-                  };
-                }
-              };
+            .then(function(reg) {
+              reg.update();
+              console.log('[PWA] Service Worker aktif terdaftar:', reg.scope);
             })
-            .catch(err => {
-              console.warn('[PWA] Service Worker registration skipped:', err);
+            .catch(function(err) {
+              console.warn('[PWA] Service Worker registrasi gagal:', err);
             });
         });
       }

@@ -113,6 +113,16 @@ export const triggerNodeAutoBuild = async (force: boolean = false): Promise<bool
  * triggers build in the background or immediately.
  */
 export const ensureClientBuildOnStartup = async (): Promise<void> => {
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    (typeof process.argv[1] === 'string' && process.argv[1].endsWith('.cjs'));
+
+  if (!isProduction) {
+    // In development mode, Vite middleware serves client files live.
+    // Never trigger background production build on dev startup.
+    return;
+  }
+
   const distPath = getDistPath();
   const indexPath = path.join(distPath, 'index.html');
 

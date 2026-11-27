@@ -56,6 +56,8 @@ export interface BaganMatch {
   atletMerah: Athlete;
   atletBiru: Athlete;
   winner: 'merah' | 'biru' | null;
+  gelanggang?: string;
+  arenaId?: string;
 }
 
 export interface BaganCategory {
@@ -66,6 +68,9 @@ export interface BaganCategory {
   matches: BaganMatch[];
   kelas?: string;
   usia?: string;
+  pool?: string;
+  gelanggang?: string;
+  arenaId?: string;
 }
 
 export interface MatchState {
@@ -99,6 +104,11 @@ export interface MatchState {
     biru: DewanPenaltyCorner;
   };
 
+  accumulatedPenaltyDeductions?: {
+    merah: number;
+    biru: number;
+  };
+
   directPoints: {
     merah: number; // Accumulated Jatuhan * 3
     biru: number;
@@ -115,6 +125,21 @@ export interface MatchState {
     result: 'MERAH' | 'BIRU' | 'TIDAK_SAH' | null;
   };
 
+  lastVerificationResult?: {
+    type: 'JATUHAN' | 'PELANGGARAN' | null;
+    result: 'MERAH' | 'BIRU' | 'TIDAK_SAH' | null;
+    votes: {
+      juri1: 'MERAH' | 'BIRU' | 'TIDAK_SAH' | null;
+      juri2: 'MERAH' | 'BIRU' | 'TIDAK_SAH' | null;
+      juri3: 'MERAH' | 'BIRU' | 'TIDAK_SAH' | null;
+    };
+    timestamp: number;
+    atletNama?: string;
+    kontingen?: string;
+    babak?: number;
+    partai?: string;
+  } | null;
+
   lastValidScore: {
     timestamp: number;
     sudut: 'merah' | 'biru';
@@ -126,6 +151,8 @@ export interface MatchState {
 
   // Real-time Bracket integration fields
   baganCategories?: BaganCategory[];
+  baganData?: BaganCategory[];
+  histories?: MatchHistory[];
   activeBaganCategoryId?: string | null;
   activeBaganMatchId?: number | null;
 }
@@ -141,6 +168,8 @@ export interface TGRPartaiPool {
   babak?: string; // e.g. "Penyisihan", "Semi Final", "Final"
   pesertaIds: string[]; // List of participant IDs in this match/pool (3, 4, or more)
   status?: 'terjadwal' | 'live' | 'selesai';
+  gelanggang?: string;
+  arenaId?: string;
 }
 
 export interface TGRPeserta {
@@ -151,6 +180,8 @@ export interface TGRPeserta {
   partaiNumber?: number; // e.g. 1
   pool?: string; // e.g. "Pool A", "Pool B", "Final"
   poolName?: string; // e.g. "Pool A", "Pool B", "Final"
+  gelanggang?: string;
+  arenaId?: string;
   isFinalPool?: boolean;
   sudut?: 'merah' | 'biru'; // For Prestasi (VS) mode
   gender?: 'Putra' | 'Putri';
@@ -298,6 +329,7 @@ export interface ArenaAssignment {
   juri2Id?: string | null;
   juri3Id?: string | null;
   juriCadanganId?: string | null;
+  seniJumlahJuri?: number; // Jumlah juri aktif bertugas untuk seni (default 5, pilihan: 1 - 10 juri)
   seniJuriIds?: { [juriKey: string]: string | null };
   shift?: string;
   status?: 'siap' | 'bertugas' | 'rotasi';
@@ -311,10 +343,38 @@ export interface AdminUser {
   lastLogin?: string;
 }
 
+export type PenaltyIconType =
+  | 'fist'
+  | 'pointing'
+  | 'peace'
+  | 'hand'
+  | 'kick_t'
+  | 'kick_sabit'
+  | 'binaan1'
+  | 'binaan2'
+  | 'teguran1'
+  | 'teguran2'
+  | 'peringatan1'
+  | 'peringatan2'
+  | 'stance'
+  | 'punch_pose'
+  | string;
+
+export interface PenaltyIconConfig {
+  slot1: PenaltyIconType; // Binaan 1
+  slot2: PenaltyIconType; // Binaan 2
+  slot3: PenaltyIconType; // Teguran 1
+  slot4: PenaltyIconType; // Teguran 2
+  slot5: PenaltyIconType; // Peringatan 1
+  slot6: PenaltyIconType; // Peringatan 2
+  customImages?: Record<string, string>; // base64 data URLs for slot1..slot6 or custom keys
+}
+
 export interface MasterDataState {
   tournament: MasterTournamentInfo;
   referees: MasterReferee[];
   assignments: Record<string, ArenaAssignment>;
+  penaltyIcons?: PenaltyIconConfig;
   auditLogs: {
     id: string;
     timestamp: string;

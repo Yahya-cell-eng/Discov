@@ -118,7 +118,7 @@ export function resequenceAndRenumberCategories(
         return a.gender === 'Putra' ? -1 : 1;
       }
       if (a.catName !== b.catName) {
-        return a.catName.localeCompare(b.catName);
+        return (a.catName || '').localeCompare(b.catName || '');
       }
       // 3. By match id in category
       return a.match.id - b.match.id;

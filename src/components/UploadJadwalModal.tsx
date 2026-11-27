@@ -11,7 +11,7 @@ import {
   Sparkles, Check, ArrowRight, ArrowDown, AlertTriangle, XCircle,
   CheckCheck, Code2, Filter, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { BaganCategory, TGRPeserta, BaganMatch, Athlete } from '../types';
+import { BaganCategory, TGRPeserta, BaganMatch, Athlete, GelanggangInfo } from '../types';
 import {
   parseScheduleFile,
   parseScheduleText,
@@ -31,12 +31,14 @@ interface UploadJadwalModalProps {
   onApplySchedule: (params: {
     tandingCategories: BaganCategory[];
     seniPesertaList: TGRPeserta[];
-    targetArena: 'current' | 'all';
+    targetArena: 'current' | 'all' | string;
     mode: 'tanding' | 'seni' | 'all';
     rawSummary: ParsedScheduleSummary;
   }) => void;
   currentArenaName?: string;
   defaultMode?: 'tanding' | 'seni' | 'all';
+  arenasList?: GelanggangInfo[];
+  selectedArenaId?: string;
 }
 
 export default function UploadJadwalModal({
@@ -44,7 +46,9 @@ export default function UploadJadwalModal({
   onClose,
   onApplySchedule,
   currentArenaName = 'Gelanggang 1',
-  defaultMode = 'all'
+  defaultMode = 'all',
+  arenasList = [],
+  selectedArenaId
 }: UploadJadwalModalProps) {
   const [activeTab, setActiveTab] = useState<'excel' | 'paste' | 'template'>('excel');
   const [isDragging, setIsDragging] = useState(false);
@@ -58,8 +62,8 @@ export default function UploadJadwalModal({
   // Paste text state
   const [rawPastedText, setRawPastedText] = useState('');
 
-  // Target application settings
-  const [targetArena, setTargetArena] = useState<'current' | 'all'>('current');
+  // Target application settings: 'current' | 'all' | arenaId
+  const [targetArena, setTargetArena] = useState<'current' | 'all' | string>(selectedArenaId || 'current');
   const [applyMode, setApplyMode] = useState<'tanding' | 'seni' | 'all'>(defaultMode);
   const [applyOnlyValid, setApplyOnlyValid] = useState(true);
 
@@ -908,30 +912,60 @@ export default function UploadJadwalModal({
                 {/* Target Arena */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Target Gelanggang:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => { playBeep('click'); setTargetArena('current'); }}
-                      className={`p-2 rounded-lg border text-left cursor-pointer transition ${
-                        targetArena === 'current'
-                          ? 'bg-blue-950/60 border-blue-500 text-blue-200 font-bold'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="text-xs">{currentArenaName}</div>
-                      <div className="text-[10px] text-slate-500 font-normal">Gelanggang aktif ini saja</div>
-                    </button>
-                    <button
-                      onClick={() => { playBeep('click'); setTargetArena('all'); }}
-                      className={`p-2 rounded-lg border text-left cursor-pointer transition ${
-                        targetArena === 'all'
-                          ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200 font-bold'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="text-xs">Semua Gelanggang</div>
-                      <div className="text-[10px] text-slate-500 font-normal">Bagi rata multi-arena</div>
-                    </button>
-                  </div>
+                  {arenasList && arenasList.length > 1 ? (
+                    <div className="space-y-1.5">
+                      <select
+                        value={targetArena}
+                        onChange={(e) => {
+                          playBeep('click');
+                          setTargetArena(e.target.value);
+                        }}
+                        className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="all">🌐 Semua Gelanggang (Distribusi Otomatis)</option>
+                        <option value="current">🎯 {currentArenaName} (Gelanggang Terpilih Saat Ini)</option>
+                        {arenasList.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            🏟️ {a.nama} ({a.kode}) — {a.keterangan || 'Aktif'}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-500 font-mono">
+                        {targetArena === 'all'
+                          ? 'Jadwal akan dibagi rata ke seluruh gelanggang yang aktif.'
+                          : `Jadwal hanya akan diterapkan ke ${
+                              targetArena === 'current'
+                                ? currentArenaName
+                                : arenasList.find((a) => a.id === targetArena)?.nama || targetArena
+                            }.`}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => { playBeep('click'); setTargetArena('current'); }}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition ${
+                          targetArena === 'current'
+                            ? 'bg-blue-950/60 border-blue-500 text-blue-200 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">{currentArenaName}</div>
+                        <div className="text-[10px] text-slate-500 font-normal">Gelanggang aktif ini saja</div>
+                      </button>
+                      <button
+                        onClick={() => { playBeep('click'); setTargetArena('all'); }}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition ${
+                          targetArena === 'all'
+                            ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">Semua Gelanggang</div>
+                        <div className="text-[10px] text-slate-500 font-normal">Bagi rata multi-arena</div>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Apply Mode */}

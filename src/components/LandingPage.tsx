@@ -13,6 +13,7 @@ import dewanImg from '../assets/images/dewan_panel_1782782282395.jpg';
 import sekretarisImg from '../assets/images/sekretaris_panel_1782782300726.jpg';
 import juriImg from '../assets/images/juri_panel_1782782315779.jpg';
 import monitorImg from '../assets/images/monitor_panel_1782782330918.jpg';
+import ykLogo from '../assets/images/yk_logo.jpg';
 import RekapitulasiSkor from './RekapitulasiSkor';
 import { MatchHistory, MatchState, GelanggangInfo, ArenaSummary, TGRState } from '../types';
 import ThemePaletteSelector from './ThemePaletteSelector';
@@ -365,9 +366,8 @@ export default function LandingPage({
           </div>
         )}
 
+        <PWAInstallButton variant="button" />
         <ThemePaletteSelector compact={false} />
-
-        <PWAInstallButton />
 
         <button
           onClick={handleDownloadSchedule}
@@ -395,10 +395,27 @@ export default function LandingPage({
           transition={{ duration: 0.7, ease: "easeOut" }}
           className="flex flex-col items-center"
         >
+          {/* YK Digital Scoring Logo Badge */}
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-b from-red-500 to-slate-900 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.35)] overflow-hidden">
+              <img
+                src={ykLogo}
+                alt="YK Digital Scoring"
+                className="w-full h-full object-contain rounded-xl bg-black"
+              />
+            </div>
+            <div className="text-left">
+              <span className="text-[9px] font-mono font-bold tracking-widest text-red-400 uppercase">OFFICIAL SYSTEM</span>
+              <h2 className="text-lg sm:text-xl font-black tracking-wider text-white uppercase leading-none">
+                YK DIGITAL SCORING
+              </h2>
+            </div>
+          </div>
+
           {/* DIGITAL SCORING header border box with wing accents */}
           <div className="relative inline-flex items-center px-12 py-1.5 border-t border-b border-cyan-500/30 bg-[#040410]/75 before:absolute before:left-0 before:top-0 before:h-full before:w-1.5 before:bg-cyan-500 after:absolute after:right-0 after:top-0 after:h-full after:w-1.5 after:bg-amber-500 shadow-[0_0_20px_rgba(6,182,212,0.15)] rounded">
             <span className="font-orbitron font-extrabold text-[11px] md:text-sm tracking-[0.35em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-white to-amber-400 uppercase">
-              DIGITAL SCORING
+              DIGITAL SCORING TANDING
             </span>
           </div>
           
@@ -794,7 +811,7 @@ export default function LandingPage({
               </>
             ) : (
               <>
-                <Maximize className="w-3 h-3 text-cyan-405" />
+                <Maximize className="w-3 h-3 text-cyan-400" />
                 <span>Layar Penuh</span>
               </>
             )}

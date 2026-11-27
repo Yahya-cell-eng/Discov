@@ -3,8 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { MasterTournamentInfo, MasterReferee, ArenaAssignment, MasterDataState, AdminUser } from '../src/types.ts';
+import type { MasterTournamentInfo, MasterReferee, ArenaAssignment, MasterDataState, AdminUser, PenaltyIconConfig } from '../src/types.ts';
 import { arenasMap } from './arenas.ts';
+
+// Default Penalty Icons Configuration for Monitor Panel
+export const defaultPenaltyIcons: PenaltyIconConfig = {
+  slot1: 'fist',
+  slot2: 'pointing',
+  slot3: 'peace',
+  slot4: 'hand',
+  slot5: 'kick_t',
+  slot6: 'kick_sabit',
+};
 
 // Default Master Tournament Information
 export const defaultTournamentInfo: MasterTournamentInfo = {
@@ -206,6 +216,7 @@ export const defaultAssignments: Record<string, ArenaAssignment> = {
     juri2Id: "ref_5",
     juri3Id: "ref_6",
     juriCadanganId: "ref_15",
+    seniJumlahJuri: 5,
     seniJuriIds: {
       juri1: "ref_2",
       juri2: "ref_5",
@@ -227,6 +238,7 @@ export const defaultAssignments: Record<string, ArenaAssignment> = {
     juri2Id: "ref_11",
     juri3Id: "ref_12",
     juriCadanganId: "ref_15",
+    seniJumlahJuri: 5,
     seniJuriIds: {
       juri1: "ref_10",
       juri2: "ref_11",
@@ -248,6 +260,7 @@ export const defaultAssignments: Record<string, ArenaAssignment> = {
     juri2Id: "ref_14",
     juri3Id: "ref_6",
     juriCadanganId: "ref_10",
+    seniJumlahJuri: 5,
     seniJuriIds: {
       juri1: "ref_13",
       juri2: "ref_14",
@@ -298,6 +311,7 @@ export const masterDataState: MasterDataState = {
   tournament: { ...defaultTournamentInfo },
   referees: JSON.parse(JSON.stringify(defaultReferees)),
   assignments: JSON.parse(JSON.stringify(defaultAssignments)),
+  penaltyIcons: { ...defaultPenaltyIcons },
   auditLogs: [
     {
       id: "log_init_01",

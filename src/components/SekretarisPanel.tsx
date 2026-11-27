@@ -7,13 +7,19 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   FileText, Play, RotateCcw, Award, CheckCircle, 
-  Trash2, Download, Upload, Image as ImageIcon, ChevronRight, HelpCircle, Power, Sun, Moon, QrCode, Maximize2, Minimize2
+  Trash2, Download, Upload, Image as ImageIcon, ChevronRight, HelpCircle, Power, Sun, Moon, QrCode, Maximize2, Minimize2,
+  Search, Filter, ListOrdered, ChevronLeft, X, AlertTriangle, CheckCircle2, Printer, Activity
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { MatchState, MatchHistory, BaganCategory, BaganMatch } from '../types';
-import { jsPDF } from 'jspdf';
 import { playBeep } from '../utils/sound';
-import { generateMatchReportPdf } from '../utils/generateMatchReportPdf';
+import { 
+  generateMatchReportPdf, 
+  generateAllMatchesReportPdf, 
+  generateRekapitulasiNilaiAkhirPdf 
+} from '../utils/generateMatchReportPdf';
+import RekapitulasiNilaiPdfModal from './RekapitulasiNilaiPdfModal';
+import EventLog from './EventLog';
 import sekretarisImg from '../assets/images/sekretaris_panel_1782782300726.jpg';
 import BaganTab from './BaganTab';
 import JadwalTab from './JadwalTab';
@@ -54,117 +60,162 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
   };
 
   const [showRegistrasiPage, setShowRegistrasiPage] = useState(false);
-  // Navigation inside panel: "config", "control", "jadwal" (Cetak Jadwal PDF), "seni" (Manajemen Seni Pool)
-  const [activeTab, setActiveTab ] = useState<'config' | 'control' | 'jadwal' | 'seni'>('control');
+  // Navigation inside panel: "config", "control", "events" (Event Log), "jadwal" (Cetak Jadwal PDF), "seni" (Manajemen Seni Pool)
+  const [activeTab, setActiveTab ] = useState<'config' | 'control' | 'events' | 'jadwal' | 'seni'>('control');
 
   const [showNextBabakConfirm, setShowNextBabakConfirm ] = useState(false);
+  const [showRekapModal, setShowRekapModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showLogoModal, setShowLogoModal] = useState(false);
+  const [showPilihPartaiModal, setShowPilihPartaiModal] = useState(false);
+  const [partaiSearchQuery, setPartaiSearchQuery] = useState('');
+  const [partaiFilterStatus, setPartaiFilterStatus] = useState<'all' | 'unfinished' | 'finished'>('all');
+  const [confirmLoadPartai, setConfirmLoadPartai] = useState<any | null>(null);
+  const [customPartaiInput, setCustomPartaiInput] = useState('');
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const fileInputKiriRef = useRef<HTMLInputElement>(null);
   const fileInputKananRef = useRef<HTMLInputElement>(null);
   const fileInputTengahRef = useRef<HTMLInputElement>(null);
 
-  // Find next match (Partai Selanjutnya)
-  const getNextMatch = () => {
-    if (!state.baganCategories) return null;
+  // Client-side image compressor for lightweight, instantaneous logo synchronization
+  const compressImage = (file: File, maxWidth = 400, maxHeight = 400): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            } else {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/png', 0.9));
+          } else {
+            resolve(reader.result as string);
+          }
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
-    interface FlattenedMatch {
-      catId: string;
-      category: BaganCategory;
-      match: BaganMatch;
+  interface FlattenedScheduled {
+    uniqueId: string;
+    catId: string;
+    categoryName: string;
+    gender: 'Putra' | 'Putri';
+    category: { id: string; name: string; gender: 'Putra' | 'Putri' };
+    round: string;
+    match: BaganMatch;
+    num: number;
+    partaiLabel: string;
+    isFinished: boolean;
+    isActive: boolean;
+  }
+
+  // Find all scheduled matches from baganCategories, baganData, or saved storage
+  const scheduledList: FlattenedScheduled[] = useMemo(() => {
+    let categories = state.baganCategories || state.baganData || [];
+    if (!categories || categories.length === 0) {
+      try {
+        const saved = localStorage.getItem('silat_bagan_data') || localStorage.getItem('silat_bagan_categories');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            categories = parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed parsing saved bagan data', e);
+      }
     }
 
-    const list: FlattenedMatch[] = [];
-    state.baganCategories.forEach(cat => {
+    const list: FlattenedScheduled[] = [];
+    const curNum = parseInt((state.partai || '').replace(/\D/g, ''), 10);
+
+    categories.forEach(cat => {
       cat.matches.forEach(m => {
+        const rawPartai = m.partai || `Partai ${m.id}`;
+        let num = parseInt(rawPartai.replace(/\D/g, ''), 10);
+        if (isNaN(num)) num = m.id;
+
+        const isFinished = Boolean(m.winner) || histories.some(h => {
+          const hNum = parseInt((h.partai || '').replace(/\D/g, ''), 10);
+          return hNum === num;
+        });
+        const isActive = !isNaN(curNum) && curNum === num;
+
         list.push({
+          uniqueId: `${cat.id}_${m.id}`,
           catId: cat.id,
-          category: cat,
-          match: m
+          categoryName: cat.name,
+          gender: cat.gender,
+          category: {
+            id: cat.id,
+            name: cat.name,
+            gender: cat.gender
+          },
+          round: m.round,
+          match: {
+            ...m,
+            partai: rawPartai
+          },
+          num,
+          partaiLabel: rawPartai.startsWith('Partai') ? rawPartai : `Partai ${rawPartai}`,
+          isFinished,
+          isActive
         });
       });
     });
 
-    const getPartaiNum = (pStr: string): number => {
-      return parseInt(pStr.replace(/\D/g, ''), 10) || 999;
-    };
+    return list.sort((a, b) => a.num - b.num);
+  }, [state.baganCategories, state.baganData, state.partai, histories]);
 
-    // Sort by Partai number numerically
-    list.sort((a, b) => {
-      const numA = getPartaiNum(a.match.partai);
-      const numB = getPartaiNum(b.match.partai);
-      return numA - numB;
-    });
-
-    // Try to find currently loaded match in the list
-    let currentIndex = -1;
-    if (state.activeBaganCategoryId && state.activeBaganMatchId) {
-      currentIndex = list.findIndex(
-        item => item.catId === state.activeBaganCategoryId && item.match.id === state.activeBaganMatchId
-      );
-    } else {
-      // Fallback: match by partai number
-      const curPartaiNum = getPartaiNum(state.partai);
-      currentIndex = list.findIndex(item => getPartaiNum(item.match.partai) === curPartaiNum);
+  const getPrevMatch = () => {
+    if (scheduledList.length === 0) return null;
+    const curPartaiNum = parseInt(state.partai.replace(/\D/g, ''), 10);
+    const currentIndex = scheduledList.findIndex(item => item.num === curPartaiNum);
+    if (currentIndex > 0) {
+      return scheduledList[currentIndex - 1];
     }
+    return null;
+  };
 
-    if (currentIndex !== -1 && currentIndex + 1 < list.length) {
-      return list[currentIndex + 1];
+  const getNextMatch = () => {
+    if (scheduledList.length === 0) return null;
+    const curPartaiNum = parseInt(state.partai.replace(/\D/g, ''), 10);
+    const currentIndex = scheduledList.findIndex(item => item.num === curPartaiNum);
+    if (currentIndex !== -1 && currentIndex + 1 < scheduledList.length) {
+      return scheduledList[currentIndex + 1];
     } else if (currentIndex === -1) {
-      // If current match is not in the bracket list, find the first match with higher partai num
-      const curPartaiNum = getPartaiNum(state.partai);
-      const found = list.find(item => getPartaiNum(item.match.partai) > curPartaiNum);
-      if (found) return found;
+      return scheduledList.find(item => item.num > curPartaiNum) || null;
     }
-
     return null;
   };
 
   const nextMatchInfo = getNextMatch();
 
-  // Find all scheduled matches from baganCategories
-  const scheduledList = useMemo(() => {
-    if (!state.baganCategories) return [];
-    
-    interface FlattenedScheduled {
-      uniqueId: string;
-      catId: string;
-      categoryName: string;
-      gender: 'Putra' | 'Putri';
-      match: BaganMatch;
-      num: number;
-    }
-
-    const list: FlattenedScheduled[] = [];
-    state.baganCategories.forEach(cat => {
-      cat.matches.forEach(m => {
-        if (m.partai && !m.partai.includes('TBD')) {
-          const num = parseInt(m.partai.replace(/\D/g, ''), 10);
-          if (!isNaN(num)) {
-            list.push({
-              uniqueId: `${cat.id}_${m.id}`,
-              catId: cat.id,
-              categoryName: cat.name,
-              gender: cat.gender,
-              match: m,
-              num
-            });
-          }
-        }
-      });
-    });
-
-    return list.sort((a, b) => a.num - b.num);
-  }, [state.baganCategories]);
-
-  const handleSelectScheduledMatch = async (uniqueId: string) => {
-    const item = scheduledList.find(x => x.uniqueId === uniqueId);
-    if (!item) return;
-
+  const handleExecuteLoadMatch = async (item: FlattenedScheduled) => {
     playBeep('valid');
     const cleanKelas = item.categoryName.replace(/\s*\(.*\)/, '');
     await dispatch('LOAD_BAGAN_MATCH', {
       namaEvent: state.namaEvent || "Kejuaraan Pencak Silat",
-      partai: item.match.partai.replace(/Partai\s+/i, ''),
+      partai: item.match.partai.replace(/Partai\s+/i, '').trim(),
       kelas: cleanKelas,
       gender: item.gender,
       selectedWaktu: state.selectedWaktu || 120,
@@ -179,7 +230,76 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
         kontingen: item.match.atletBiru.kontingen || "SUDUT BIRU"
       }
     });
+    setToastMsg(`Partai ${item.match.partai} berhasil dimuat ke gelanggang!`);
+    setTimeout(() => setToastMsg(null), 3000);
+    setShowPilihPartaiModal(false);
+    setConfirmLoadPartai(null);
   };
+
+  const handleLoadMatch = (item: FlattenedScheduled) => {
+    // If current match is running or has scores, warn before replacing
+    if (state.matchStatus === 'running' || state.matchStatus === 'paused' || state.scores.merah.total > 0 || state.scores.biru.total > 0) {
+      setConfirmLoadPartai(item);
+    } else {
+      handleExecuteLoadMatch(item);
+    }
+  };
+
+  const handleSelectScheduledMatch = async (uniqueId: string) => {
+    const item = scheduledList.find(x => x.uniqueId === uniqueId);
+    if (!item) return;
+    handleLoadMatch(item);
+  };
+
+  const handleLoadCustomPartai = async (partaiStr: string) => {
+    if (!partaiStr.trim()) return;
+    const cleanNum = partaiStr.replace(/Partai\s*/i, '').trim();
+    const num = parseInt(cleanNum, 10);
+    const existing = scheduledList.find(x => x.num === num);
+    if (existing) {
+      handleLoadMatch(existing);
+    } else {
+      playBeep('click');
+      await dispatch('UPDATE_EVENT_INFO', {
+        partai: cleanNum.padStart(2, '0')
+      });
+      setToastMsg(`Nomor partai diatur ke Partai ${cleanNum}`);
+      setTimeout(() => setToastMsg(null), 3000);
+      setShowPilihPartaiModal(false);
+      setCustomPartaiInput('');
+    }
+  };
+
+  const filteredPartaiList = useMemo(() => {
+    return scheduledList.filter(item => {
+      if (partaiFilterStatus === 'unfinished' && item.isFinished) return false;
+      if (partaiFilterStatus === 'finished' && !item.isFinished) return false;
+
+      if (partaiSearchQuery.trim()) {
+        const q = partaiSearchQuery.toLowerCase().trim();
+        const numStr = item.num.toString();
+        const pStr = item.partaiLabel.toLowerCase();
+        const catStr = item.categoryName.toLowerCase();
+        const roundStr = (item.round || '').toLowerCase();
+        const redName = (item.match.atletMerah.nama || '').toLowerCase();
+        const redKt = (item.match.atletMerah.kontingen || '').toLowerCase();
+        const blueName = (item.match.atletBiru.nama || '').toLowerCase();
+        const blueKt = (item.match.atletBiru.kontingen || '').toLowerCase();
+
+        return (
+          numStr.includes(q) ||
+          pStr.includes(q) ||
+          catStr.includes(q) ||
+          roundStr.includes(q) ||
+          redName.includes(q) ||
+          redKt.includes(q) ||
+          blueName.includes(q) ||
+          blueKt.includes(q)
+        );
+      }
+      return true;
+    });
+  }, [scheduledList, partaiFilterStatus, partaiSearchQuery]);
 
   // Read server state when mounted or updated to set appropriate initial tab
   useEffect(() => {
@@ -201,19 +321,21 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
     dispatch('UPDATE_ATHLETES', payload);
   };
 
-  // Turn image select into base64 url
-  const handleLogoUpload = (corner: 'kiri' | 'kanan' | 'tengah', e: React.ChangeEvent<HTMLInputElement>) => {
+  // Turn image select into optimized base64 url
+  const handleLogoUpload = async (corner: 'kiri' | 'kanan' | 'tengah', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     playBeep('click');
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
+    try {
+      const base64 = await compressImage(file, 400, 400);
       const key = corner === 'kiri' ? 'logoKiri' : corner === 'kanan' ? 'logoKanan' : 'logoTengah';
-      dispatch('UPLOAD_LOGOS', { [key]: base64 });
-    };
-    reader.readAsDataURL(file);
+      await dispatch('UPLOAD_LOGOS', { [key]: base64 });
+      setToastMsg(`Logo ${corner === 'kiri' ? 'Kiri' : corner === 'kanan' ? 'Kanan' : 'Tengah'} berhasil disinkronkan ke Layar Monitor!`);
+      setTimeout(() => setToastMsg(null), 3500);
+    } catch (err) {
+      console.error('Failed to compress/upload logo:', err);
+    }
   };
 
   // CSV Roster Importer
@@ -272,6 +394,23 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
     playBeep('click');
     dispatch('TOGGLE_TIMER');
   };
+
+  // Shortcut Tombol SPASI untuk Mulai / Jeda Timer Tanding
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        const target = e.target as HTMLElement;
+        const tagName = target?.tagName?.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        toggleTimer();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const resetTimer = () => {
     playBeep('warning');
@@ -365,7 +504,30 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
 
   const handleExportPDF = () => {
     playBeep('click');
-    generateMatchReportPdf(state, histories);
+    generateRekapitulasiNilaiAkhirPdf({
+      state,
+      histories,
+      tournamentTitle: state.namaEvent,
+      gelanggang: state.gelanggang,
+      jenisKemenangan: state.winner ? 'Menang Angka' : 'Pertandingan Sedang Berlangsung'
+    });
+  };
+
+  const handleOpenRekapModal = () => {
+    playBeep('click');
+    setShowRekapModal(true);
+  };
+
+  const handleExportAllPDF = () => {
+    playBeep('click');
+    generateAllMatchesReportPdf({
+      state,
+      histories,
+      baganData: state.baganData,
+      tgrState,
+      gelanggang: state.gelanggang,
+      tournamentTitle: state.namaEvent
+    });
   };
 
   // Watch state change to show "Lanjut ke Babak Selanjutnya" modal dialogue
@@ -403,105 +565,146 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
   }
 
   return (
-    <div className={`w-full h-full flex flex-col justify-between p-3 select-none transition-colors duration-300 relative ${
+    <div className={`w-full h-full flex flex-col p-2 sm:p-3 overflow-hidden select-none transition-colors duration-300 relative ${
       theme === 'dark' ? 'text-slate-100 bg-slate-950' : 'text-slate-800 bg-slate-50'
     }`}>
       
-      {/* 1. Header Display */}
-      <div className={`flex justify-between items-center pb-3 border px-4 py-2 rounded-xl shadow-lg flex-shrink-0 transition-all duration-300 ${
+      {/* 1. Header Display - Responsive for Mobile, Tablet, Laptop */}
+      <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-2 sm:gap-2.5 pb-2.5 sm:pb-3 border px-2.5 sm:px-4 py-2 rounded-xl shadow-lg flex-shrink-0 transition-all duration-300 ${
         theme === 'dark' 
           ? 'border-slate-805 bg-gradient-to-r from-slate-900/40 via-slate-900 to-slate-900/40 text-slate-100' 
           : 'border-slate-205 bg-gradient-to-r from-slate-200/40 via-slate-200 to-slate-200/40 text-slate-800'
       }`}>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={closeBack}
-            className={`px-2.5 py-1 text-xs cursor-pointer rounded transition-colors font-bold uppercase ${
-              theme === 'dark' 
-                ? 'bg-slate-800 hover:bg-slate-705 border border-slate-700 text-slate-300' 
-                : 'bg-white hover:bg-slate-100 border border-slate-300 text-slate-755'
-            }`}
-          >
-            ← Keluar
-          </button>
-          <button
-            onClick={onToggleTheme}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-amber-400' : 'hover:bg-slate-200 text-slate-600'}`}
-            title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
-          >
-            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
+        {/* Top row on mobile / Left group on desktop */}
+        <div className="flex items-center justify-between lg:justify-start gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button 
+              onClick={closeBack}
+              className={`px-2.5 py-1 text-xs cursor-pointer rounded transition-colors font-bold uppercase ${
+                theme === 'dark' 
+                  ? 'bg-slate-800 hover:bg-slate-705 border border-slate-700 text-slate-300' 
+                  : 'bg-white hover:bg-slate-100 border border-slate-300 text-slate-755'
+              }`}
+            >
+              ← Keluar
+            </button>
+            <button
+              onClick={onToggleTheme}
+              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-amber-400' : 'hover:bg-slate-200 text-slate-600'}`}
+              title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
+            >
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
 
-          <ThemePaletteSelector compact={true} />
-          
-          <button
-            onClick={toggleFullscreen}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-200 text-slate-600'}`}
-            title="Toggle Fullscreen"
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-          
-          <button
-            onClick={() => { playBeep('click'); setShowQrModal(true); }}
-            className={`px-2.5 py-1 text-xs cursor-pointer rounded transition-colors font-bold uppercase flex items-center gap-1 ${
-              theme === 'dark' 
-                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-900 text-indigo-300' 
-                : 'bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700'
-            }`}
-            title="Sambungkan Device / QR Barcode"
-          >
-            <QrCode className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden xs:inline">Barcode System</span>
-          </button>
+            <ThemePaletteSelector compact={true} />
+            
+            <button
+              onClick={toggleFullscreen}
+              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-200 text-slate-600'}`}
+              title="Toggle Fullscreen"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+            
+            <button
+              onClick={() => { playBeep('click'); setShowQrModal(true); }}
+              className={`px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs cursor-pointer rounded transition-colors font-bold uppercase flex items-center gap-1 ${
+                theme === 'dark' 
+                  ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-900 text-indigo-300' 
+                  : 'bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700'
+              }`}
+              title="Sambungkan Device / QR Barcode"
+            >
+              <QrCode className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">Barcode System</span>
+            </button>
 
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'}`} />
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full overflow-hidden border border-purple-500/70 bg-slate-950 flex items-center justify-center p-0.5 shadow-[0_0_10px_rgba(168,85,247,0.4)] shrink-0">
-              <img
-                src={sekretarisImg}
-                alt="Sekretaris Utama"
-                className="w-full h-full object-contain rounded-full"
-                referrerPolicy="no-referrer"
-              />
+            <div className={`hidden sm:block h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'}`} />
+            <div className="flex items-center gap-1.5">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden border border-purple-500/70 bg-slate-950 flex items-center justify-center p-0.5 shadow-[0_0_10px_rgba(168,85,247,0.4)] shrink-0">
+                <img
+                  src={sekretarisImg}
+                  alt="Sekretaris Utama"
+                  className="w-full h-full object-contain rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <span className={`text-[11px] sm:text-xs font-mono font-black uppercase tracking-wider truncate max-w-[120px] sm:max-w-none ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>
+                SEKRETARIS
+              </span>
             </div>
-            <span className={`text-xs font-mono font-black uppercase tracking-wider ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>SEKRETARIS UTAMA &bull; TANDING & SENI</span>
+          </div>
+
+          {/* Quick Select Partai for Mobile/Tablet */}
+          <div className="flex lg:hidden items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                playBeep('click');
+                setShowPilihPartaiModal(true);
+              }}
+              title="Pilih Partai Pertandingan"
+              className="px-2.5 py-1 rounded-lg font-black text-[11px] uppercase flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm border border-amber-300/80 cursor-pointer active:scale-95"
+            >
+              <ListOrdered className="w-3 h-3 text-slate-950" />
+              <span>P{state.partai || '01'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Tab Selection */}
-        <div className={`flex p-1 rounded-lg border items-center gap-1 ${
+        {/* Tab Selection (Smooth Horizontal Scroll for Mobile / HP & Tablet) */}
+        <div className={`w-full lg:w-auto overflow-x-auto no-scrollbar flex items-center gap-1 p-1 rounded-lg border shrink-0 scroll-smooth ${
           theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-250'
         }`}>
           <button
             onClick={() => { playBeep('click'); setShowRegistrasiPage(true); }}
-            className="px-3 py-1 text-xs uppercase font-black cursor-pointer rounded transition-all bg-emerald-600 text-white shadow shadow-emerald-990/40 hover:bg-emerald-500 hover:scale-105 active:scale-95 duration-250"
+            className="px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded transition-all bg-emerald-600 text-white shadow shadow-emerald-990/40 hover:bg-emerald-500 hover:scale-105 active:scale-95 duration-250 whitespace-nowrap shrink-0"
           >
             🏆 REGISTRASI DATA
           </button>
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5`} />
+          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5 shrink-0`} />
           <button
             onClick={() => { playBeep('click'); setActiveTab('config'); }}
-            className={`px-3 py-1 text-xs uppercase font-extrabold cursor-pointer rounded transition-all ${activeTab === 'config' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-extrabold cursor-pointer rounded transition-all whitespace-nowrap shrink-0 ${activeTab === 'config' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
           >
             Registrasi Atlet
           </button>
           <button
             onClick={() => { playBeep('click'); setActiveTab('control'); }}
-            className={`px-3 py-1 text-xs uppercase font-extrabold cursor-pointer rounded transition-all ${activeTab === 'control' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-extrabold cursor-pointer rounded transition-all whitespace-nowrap shrink-0 ${activeTab === 'control' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
           >
             Kontrol Partai
           </button>
           <button
+            onClick={() => { playBeep('click'); setActiveTab('events'); }}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+              activeTab === 'events'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow shadow-emerald-990/40 scale-105'
+                : 'bg-emerald-950/30 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/40 hover:text-white'
+            }`}
+            title="Buka Log Peristiwa Pertandingan Real-Time (Jatuhan, Pelanggaran, VAR, Skor)"
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span>⚡ EVENT LOG</span>
+          </button>
+          <button
             onClick={() => { playBeep('click'); setActiveTab('jadwal'); }}
-            className={`px-3 py-1 text-xs uppercase font-extrabold cursor-pointer rounded transition-all ${activeTab === 'jadwal' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-extrabold cursor-pointer rounded transition-all whitespace-nowrap shrink-0 ${activeTab === 'jadwal' ? 'bg-emerald-600 text-white shadow shadow-emerald-990/40' : 'text-slate-400 hover:text-slate-600'}`}
           >
             📅 Cetak Jadwal
           </button>
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5`} />
+          <button
+            onClick={handleOpenRekapModal}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-950/30 active:scale-95`}
+            title="Cetak Formulir Rekapitulasi Nilai Akhir Pertandingan Resmi (PDF)"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-950" />
+            <span>📄 CETAK REKAP NILAI</span>
+          </button>
+          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5 shrink-0`} />
           <button
             onClick={() => { playBeep('click'); setActiveTab('seni'); }}
-            className={`px-3 py-1 text-xs uppercase font-black cursor-pointer rounded transition-all flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               activeTab === 'seni'
                 ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-amber-600 text-white shadow-lg shadow-purple-950/50 scale-105'
                 : 'bg-purple-950/30 text-purple-300 border border-purple-800/40 hover:bg-purple-900/40 hover:text-white'
@@ -509,18 +712,77 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
             title="Pengaturan Seni: 3-4 Peserta per Partai / Sistem Pool"
           >
             <span className="text-amber-400">🥋</span>
-            <span>SENI POOL (3-4+ PESERTA)</span>
+            <span>SENI POOL</span>
+          </button>
+          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'} mx-0.5 shrink-0`} />
+          <button
+            onClick={() => { playBeep('click'); setShowLogoModal(true); }}
+            className={`px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs uppercase font-black cursor-pointer rounded transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+              state.logoKiri || state.logoKanan
+                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 hover:bg-amber-500/40'
+                : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'
+            }`}
+            title="Ubah Logo Layar Monitor (Kiri & Kanan)"
+          >
+            <span>🖼️</span>
+            <span>LOGO MONITOR</span>
+            {(state.logoKiri || state.logoKanan) && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            )}
           </button>
         </div>
 
-        {/* Match Tracker right aligned */}
-        <div className={`text-right text-[11px] font-mono flex items-center gap-1.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-          <div>
-            PARTAI <span className={`font-black text-xs px-2 py-0.5 rounded-md shadow-sm ml-1 ${theme === 'dark' ? 'bg-indigo-950 text-indigo-300 border border-indigo-900/50' : 'bg-indigo-50 text-indigo-700 border border-indigo-200 font-extrabold'}`}>{state.partai}</span>
+        {/* Match Tracker right aligned (visible on lg+) */}
+        <div className={`hidden lg:flex text-right text-[11px] font-mono items-center gap-2 shrink-0 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+          {/* Quick Prev / Next Stepper */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                const prev = getPrevMatch();
+                if (prev) handleLoadMatch(prev);
+              }}
+              disabled={!getPrevMatch()}
+              title={getPrevMatch() ? `Partai Sebelumnya: P${getPrevMatch()?.num}` : 'Tidak ada partai sebelumnya'}
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none text-slate-300 border border-slate-800 cursor-pointer transition-all active:scale-95"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const next = getNextMatch();
+                if (next) handleLoadMatch(next);
+              }}
+              disabled={!getNextMatch()}
+              title={getNextMatch() ? `Partai Selanjutnya: P${getNextMatch()?.num}` : 'Tidak ada partai selanjutnya'}
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none text-slate-300 border border-slate-800 cursor-pointer transition-all active:scale-95"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <div className="mx-1">|</div>
-          <div>
-            KELAS <span className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{state.kelas}</span>
+
+          {/* Tombol PILIH PARTAI Header Button */}
+          <button
+            type="button"
+            onClick={() => {
+              playBeep('click');
+              setShowPilihPartaiModal(true);
+            }}
+            title="Klik untuk membuka daftar dan memilih partai pertandingan"
+            className="px-3 py-1.5 rounded-xl font-black text-xs uppercase flex items-center gap-1.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-950/40 cursor-pointer transition-all active:scale-95 border border-amber-300/80"
+          >
+            <ListOrdered className="w-3.5 h-3.5 text-slate-950" />
+            <span>PILIH PARTAI</span>
+            <span className="bg-slate-950/20 text-slate-950 px-1.5 py-0.5 rounded text-[11px] font-mono font-black">
+              P{state.partai || '01'}
+            </span>
+          </button>
+
+          <div className="hidden xl:flex items-center gap-1.5">
+            <span className="text-slate-500">|</span>
+            <span className="text-slate-400 text-[10px]">KELAS:</span>
+            <span className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{state.kelas || '-'}</span>
           </div>
         </div>
       </div>
@@ -529,10 +791,11 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
       {activeTab === 'config' ? (
         
         /* ATLET REGISTRATION GRID CONFIG */
-        <div className="grid grid-cols-12 gap-3 flex-1 my-2 min-h-0 bg-slate-900/10 p-3 rounded-xl border border-slate-900 overflow-y-auto">
-          
-          {/* LEFT: Core Match Metadata fields (Col 4) */}
-          <div className="col-span-4 flex flex-col gap-2 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
+        <div className="flex-1 my-2 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-6 overscroll-contain">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 bg-slate-900/10 p-3 rounded-xl border border-slate-900 min-h-full">
+            
+            {/* LEFT: Core Match Metadata fields (Col 4 on desktop) */}
+            <div className="lg:col-span-4 flex flex-col gap-2 bg-slate-900/40 p-3 rounded-lg border border-slate-800/80">
             <h4 className="text-[11px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5 border-b border-slate-800 pb-1.5">
               <span>●</span> Data Tournament & Partai
             </h4>
@@ -547,27 +810,53 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               />
             </div>
 
-            {scheduledList.length > 0 && (
-              <div>
-                <label className="block text-[10px] text-emerald-450 font-mono uppercase font-bold mb-0.5">📅 PILIH DARI JADWAL PERTANDINGAN</label>
-                <select
-                  value={scheduledList.find(x => x.num === parseInt(state.partai.replace(/\D/g, ''), 10))?.uniqueId || ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleSelectScheduledMatch(e.target.value);
-                    }
-                  }}
-                  className="w-full text-xs bg-slate-950 border border-emerald-900/50 focus:border-emerald-500 px-2 py-1.5 rounded-md outline-none text-emerald-400 font-bold font-mono"
-                >
-                  <option value="" className="text-slate-500 bg-slate-950">-- Pilih Partai Terjadwal --</option>
-                  {scheduledList.map(item => (
-                    <option key={item.uniqueId} value={item.uniqueId} className="text-slate-300 bg-slate-950">
-                      P{item.num.toString().padStart(2, '0')} - {item.categoryName.replace(/\s*\(.*\)/, '')} ({item.match.atletMerah.nama || 'TBD'} vs {item.match.atletBiru.nama || 'TBD'})
-                    </option>
-                  ))}
-                </select>
+            {/* Box Pemilihan Partai Terjadwal */}
+            <div className="p-3 bg-slate-950/80 rounded-xl border border-emerald-500/40 shadow-inner flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] text-emerald-400 font-mono uppercase font-black flex items-center gap-1.5">
+                  <ListOrdered className="w-4 h-4 text-emerald-400" />
+                  <span>PILIH PARTAI PERTANDINGAN</span>
+                </label>
+                <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                  {scheduledList.length} Partai
+                </span>
               </div>
-            )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  playBeep('click');
+                  setShowPilihPartaiModal(true);
+                }}
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase rounded-lg shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
+              >
+                <Search className="w-4 h-4 text-emerald-200" />
+                <span>Buka Daftar & Pilih Partai</span>
+              </button>
+
+              {scheduledList.length > 0 && (
+                <div className="flex flex-col gap-1 mt-0.5">
+                  <span className="text-[9px] font-mono uppercase text-slate-400 font-bold">Pilih Cepat dari Dropdown:</span>
+                  <select
+                    value={scheduledList.find(x => x.num === parseInt(state.partai.replace(/\D/g, ''), 10))?.uniqueId || ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const target = scheduledList.find(x => x.uniqueId === e.target.value);
+                        if (target) handleLoadMatch(target);
+                      }
+                    }}
+                    className="w-full text-xs bg-slate-900 border border-emerald-900/60 focus:border-emerald-500 px-2 py-1.5 rounded-md outline-none text-emerald-300 font-bold font-mono"
+                  >
+                    <option value="" className="text-slate-500 bg-slate-950">-- Pilih Dari Dropdown --</option>
+                    {scheduledList.map((item, idx) => (
+                      <option key={`${item.uniqueId}__${idx}`} value={item.uniqueId} className="text-slate-200 bg-slate-950">
+                        P{item.num.toString().padStart(2, '0')} - {item.categoryName.replace(/\s*\(.*\)/, '')} ({item.match.atletMerah.nama || 'TBD'} vs {item.match.atletBiru.nama || 'TBD'}) {item.isFinished ? '✓' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -658,7 +947,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         const newM = Math.max(0, curM - 1);
                         handleUpdateInfo({ selectedWaktu: newM * 60 + curS });
                       }}
-                      className="px-2 py-0.5 text-xs font-black text-slate-405 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
+                      className="px-2 py-0.5 text-xs font-black text-slate-400 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
                     >
                       -
                     </button>
@@ -683,7 +972,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         const newM = curM + 1;
                         handleUpdateInfo({ selectedWaktu: newM * 60 + curS });
                       }}
-                      className="px-2 py-0.5 text-xs font-black text-slate-405 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
+                      className="px-2 py-0.5 text-xs font-black text-slate-400 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
                     >
                       +
                     </button>
@@ -706,7 +995,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         const newS = (curS - 5 + 60) % 60;
                         handleUpdateInfo({ selectedWaktu: curM * 60 + newS });
                       }}
-                      className="px-2 py-0.5 text-xs font-black text-slate-405 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
+                      className="px-2 py-0.5 text-xs font-black text-slate-400 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
                     >
                       -
                     </button>
@@ -731,7 +1020,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         const newS = (curS + 5) % 60;
                         handleUpdateInfo({ selectedWaktu: curM * 60 + newS });
                       }}
-                      className="px-2 py-0.5 text-xs font-black text-slate-405 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
+                      className="px-2 py-0.5 text-xs font-black text-slate-400 hover:text-white hover:bg-slate-900 rounded cursor-pointer"
                     >
                       +
                     </button>
@@ -740,89 +1029,134 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               </div>
             </div>
 
-            {/* Logo uploads buttons */}
-            <div className="border-t border-slate-800 pt-2 mt-1">
-              <div className="flex items-center justify-between mb-1.5 animate-fade-in">
-                <span className="block text-[10px] text-slate-500 font-mono uppercase font-bold">Upload Logo Layar Monitor</span>
+            {/* Full-Featured Logo Manager Card for Layar Monitor */}
+            <div className="border-t border-slate-800 pt-3 mt-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
+              <div className="flex items-center justify-between mb-2">
+                <span className="block text-[11px] text-amber-400 font-mono uppercase font-black tracking-wider flex items-center gap-1.5">
+                  <span>🖼️</span> LOGO LAYAR MONITOR
+                </span>
                 {(state.logoKiri || state.logoKanan || state.logoTengah) && (
                   <button
                     type="button"
                     onClick={() => {
                       playBeep('warning');
                       dispatch('UPLOAD_LOGOS', { logoKiri: null, logoKanan: null, logoTengah: null });
+                      setToastMsg('Semua logo telah dikembalikan ke logo IPSI bawaan!');
+                      setTimeout(() => setToastMsg(null), 3500);
                     }}
-                    className="text-[9px] text-red-500 hover:text-red-400 font-bold uppercase tracking-wider bg-transparent p-0 border-0 cursor-pointer"
+                    className="text-[9px] text-red-400 hover:text-red-300 font-bold uppercase tracking-wider bg-red-950/40 border border-red-800/40 px-2 py-0.5 rounded cursor-pointer transition-colors"
                   >
-                    Reset All
+                    Reset ke IPSI
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => { playBeep('click'); fileInputKiriRef.current?.click(); }}
-                  className={`py-1 px-1.5 cursor-pointer hover:bg-slate-800 border text-[9px] uppercase font-bold rounded flex flex-col items-center justify-center gap-1 transition-all ${
-                    state.logoKiri ? 'bg-cyan-950/20 border-cyan-800 text-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-455'
-                  }`}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>Logo Kiri</span>
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputKiriRef}
-                  accept="image/*"
-                  onChange={(e) => handleLogoUpload('kiri', e)}
-                  className="hidden"
-                />
 
-                <button
-                  type="button"
-                  onClick={() => { playBeep('click'); fileInputTengahRef.current?.click(); }}
-                  className={`py-1 px-1.5 cursor-pointer hover:bg-slate-800 border text-[9px] uppercase font-bold rounded flex flex-col items-center justify-center gap-1 transition-all ${
-                    state.logoTengah ? 'bg-amber-950/20 border-amber-800 text-amber-400' : 'bg-slate-900 border-slate-800 text-slate-455'
-                  }`}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>Logo Tengah</span>
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputTengahRef}
-                  accept="image/*"
-                  onChange={(e) => handleLogoUpload('tengah', e)}
-                  className="hidden"
-                />
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* Logo Kiri Card */}
+                <div className="flex flex-col items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase mb-1.5">Logo Kiri</span>
+                  <div className="w-16 h-16 rounded-xl bg-white border-2 border-slate-300 flex items-center justify-center p-1 overflow-hidden shadow-inner mb-2">
+                    {state.logoKiri ? (
+                      <img src={state.logoKiri} alt="Logo Kiri" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400">
+                        <span className="text-xl">🛡️</span>
+                        <span className="text-[8px] font-black text-slate-600">IPSI</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col w-full gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { playBeep('click'); fileInputKiriRef.current?.click(); }}
+                      className="w-full py-1 px-1.5 cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] uppercase rounded tracking-wider transition-all shadow-sm"
+                    >
+                      {state.logoKiri ? 'Ganti Logo' : 'Unggah Logo'}
+                    </button>
+                    {state.logoKiri && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playBeep('click');
+                          dispatch('UPLOAD_LOGOS', { logoKiri: null });
+                          setToastMsg('Logo kiri dikembalikan ke logo IPSI bawaan!');
+                          setTimeout(() => setToastMsg(null), 3500);
+                        }}
+                        className="w-full py-0.5 text-[8px] text-slate-400 hover:text-red-400 font-bold uppercase transition-colors"
+                      >
+                        Reset ke IPSI
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputKiriRef}
+                    accept="image/*"
+                    onChange={(e) => handleLogoUpload('kiri', e)}
+                    className="hidden"
+                  />
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => { playBeep('click'); fileInputKananRef.current?.click(); }}
-                  className={`py-1 px-1.5 cursor-pointer hover:bg-slate-800 border text-[9px] uppercase font-bold rounded flex flex-col items-center justify-center gap-1 transition-all ${
-                    state.logoKanan ? 'bg-red-950/20 border-red-850 text-red-400' : 'bg-slate-900 border-slate-800 text-slate-455'
-                  }`}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>Logo Kanan</span>
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputKananRef}
-                  accept="image/*"
-                  onChange={(e) => handleLogoUpload('kanan', e)}
-                  className="hidden"
-                />
+                {/* Logo Kanan Card */}
+                <div className="flex flex-col items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase mb-1.5">Logo Kanan</span>
+                  <div className="w-16 h-16 rounded-xl bg-white border-2 border-slate-300 flex items-center justify-center p-1 overflow-hidden shadow-inner mb-2">
+                    {state.logoKanan ? (
+                      <img src={state.logoKanan} alt="Logo Kanan" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400">
+                        <span className="text-xl">🛡️</span>
+                        <span className="text-[8px] font-black text-slate-600">IPSI</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col w-full gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { playBeep('click'); fileInputKananRef.current?.click(); }}
+                      className="w-full py-1 px-1.5 cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] uppercase rounded tracking-wider transition-all shadow-sm"
+                    >
+                      {state.logoKanan ? 'Ganti Logo' : 'Unggah Logo'}
+                    </button>
+                    {state.logoKanan && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playBeep('click');
+                          dispatch('UPLOAD_LOGOS', { logoKanan: null });
+                          setToastMsg('Logo kanan dikembalikan ke logo IPSI bawaan!');
+                          setTimeout(() => setToastMsg(null), 3500);
+                        }}
+                        className="w-full py-0.5 text-[8px] text-slate-400 hover:text-red-400 font-bold uppercase transition-colors"
+                      >
+                        Reset ke IPSI
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputKananRef}
+                    accept="image/*"
+                    onChange={(e) => handleLogoUpload('kanan', e)}
+                    className="hidden"
+                  />
+                </div>
               </div>
+
+              <p className="text-[9px] text-slate-400 font-mono mt-2 text-center">
+                *Logo otomatis tampil di sudut kiri dan kanan atas Layar Monitor Tanding secara real-time.
+              </p>
             </div>
           </div>
 
-          {/* MIDDLE + RIGHT: Athlete inputs & Roster Import options (Col 8) */}
-          <div className="col-span-8 flex flex-col justify-between gap-3 min-h-0">
+          {/* MIDDLE + RIGHT: Athlete inputs & Roster Import options (Col 8 on desktop) */}
+          <div className="lg:col-span-8 flex flex-col gap-3 min-h-0">
             
             {/* Athlete detail configuration cards */}
             <div className="grid grid-cols-2 gap-3">
               {/* SUDUT BIRU FIELD CONFIG */}
               <div className="bg-gradient-to-b from-blue-950/20 to-slate-900/55 p-3 rounded-lg border border-blue-900/40">
-                <span className="text-[9px] font-black uppercase text-cyan-405 tracking-wider">REGISTRASI SUDUT BIRU</span>
+                <span className="text-[9px] font-black uppercase text-cyan-400 tracking-wider">REGISTRASI SUDUT BIRU</span>
                 <div className="mt-2.5 flex flex-col gap-1.5">
                   <div>
                     <label className="block text-[9px] text-slate-500 uppercase font-mono">Nama Atlet</label>
@@ -894,7 +1228,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                 </button>
 
                 <label className="flex-1 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 cursor-pointer text-xs font-bold uppercase rounded-lg text-slate-300 flex items-center justify-center gap-1.5 transition-all text-center w-full">
-                  <Upload className="w-3.5 h-3.5 text-emerald-450" />
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
                   Upload CSV
                   <input
                     type="file"
@@ -925,10 +1259,10 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               ) : (
                 <div className="flex flex-col gap-1">
                   {histories.map((h, i) => (
-                    <div key={h.id} className="text-[10px] font-mono flex justify-between bg-slate-900/40 px-2 py-1 rounded border border-slate-850">
+                    <div key={`${h.id || 'hist'}__${i}`} className="text-[10px] font-mono flex justify-between bg-slate-900/40 px-2 py-1 rounded border border-slate-800">
                       <span>P{h.partai} - {h.kelas} - {h.gender}</span>
-                      <span className="text-slate-455">{h.atletMerah.nama} ({h.skorAkhirMerah}) vs {h.atletBiru.nama} ({h.skorAkhirBiru})</span>
-                      <span className="font-bold text-emerald-450">PEMENANG: {h.winner === 'merah' ? 'MERAH' : h.winner === 'biru' ? 'BIRU' : 'SERI'}</span>
+                      <span className="text-slate-400">{h.atletMerah.nama} ({h.skorAkhirMerah}) vs {h.atletBiru.nama} ({h.skorAkhirBiru})</span>
+                      <span className="font-bold text-emerald-400">PEMENANG: {h.winner === 'merah' ? 'MERAH' : h.winner === 'biru' ? 'BIRU' : 'SERI'}</span>
                     </div>
                   ))}
                 </div>
@@ -946,19 +1280,21 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
           </div>
 
         </div>
+      </div>
       ) : activeTab === 'control' ? (
         
         /* MATCH CONTROL PANEL ACTIVE DASHBOARD */
-        <div className="grid grid-cols-12 gap-3 flex-1 my-2 min-h-0">
-          
-          {/* LEFT COLUMN: Controls, Round selectors, timers (Col 7) */}
-          <div className="col-span-7 flex flex-col justify-between bg-slate-900/40 p-4 rounded-xl border border-slate-800/80 min-h-0">
+        <div className="flex-1 my-2 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-6 overscroll-contain">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-full">
+            
+            {/* LEFT COLUMN: Controls, Round selectors, timers (Col 7 on desktop) */}
+            <div className="lg:col-span-7 flex flex-col gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
             
             {/* Timer Giant Display Board */}
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center relative overflow-hidden shadow-inner">
               <span className="text-[9px] font-black text-slate-500 uppercase font-mono tracking-widest">DIGITAL SHOCK TIMER</span>
               
-              <div className="text-[4.5rem] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-teal-400 to-cyan-305 font-mono my-2 tracking-wide filter drop-shadow">
+              <div className="text-[4.5rem] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-teal-400 to-cyan-300 font-mono my-2 tracking-wide filter drop-shadow">
                 {formatTimer(state.timerSeconds)}
               </div>
 
@@ -973,7 +1309,8 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
             <div className="flex gap-3 my-3">
               <button
                 onClick={toggleTimer}
-                className={`flex-1 py-3 cursor-pointer rounded-xl font-bold text-xs uppercase tracking-widest text-white flex items-center justify-center gap-2 transition-all shadow ${
+                title="Tekan Spasi (Space) pada keyboard untuk Mulai / Jeda Timer"
+                className={`flex-1 py-3 px-3 cursor-pointer rounded-xl font-bold text-xs uppercase tracking-widest text-white flex items-center justify-center gap-2 transition-all shadow ${
                   state.timerActive 
                     ? 'bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-950/30' 
                     : 'bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-950/30'
@@ -981,6 +1318,9 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               >
                 <Play className={`w-4 h-4 ${state.timerActive ? 'hidden' : 'block'}`} />
                 <span className="text-white font-extrabold">{state.timerActive ? 'Jeda Pertandingan (PAUSE)' : 'JALANKAN WAKTU (PLAY)'}</span>
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/30 text-white/90 border border-white/20">
+                  SPASI
+                </span>
               </button>
 
               <button
@@ -1004,7 +1344,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                     onClick={() => handleSelectRound(num as any)}
                     className={`py-2 px-4 cursor-pointer text-xs font-black rounded-lg transition-all border ${
                       state.currentBabak === num 
-                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-450 text-white shadow-lg' 
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-500 text-white shadow-lg' 
                         : 'bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-400'
                     }`}
                   >
@@ -1018,20 +1358,30 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
             <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800 mt-3 flex flex-col gap-2.5 text-left">
               <span className="block text-[10px] text-emerald-400 font-mono uppercase font-black tracking-widest">KONTROL PARTAI & KOREKSI SEBAGAI SEKRETARIS</span>
               
-              {/* Row 1: Quick Navigation for Partai Number */}
-              <div className="flex items-center justify-between gap-2 border-b border-slate-900 pb-2">
-                <span className="text-[10px] text-slate-400 font-bold uppercase">Navigasi Partai:</span>
-                <div className="flex gap-2">
+              {/* Row 1: Quick Navigation for Partai Number with direct modal launcher */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Navigasi Partai:</span>
+                  <button
+                    onClick={() => { playBeep('click'); setShowPilihPartaiModal(true); }}
+                    className="px-2.5 py-1 text-[10px] font-black uppercase bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 rounded-md cursor-pointer transition-all flex items-center gap-1 shadow-sm"
+                    title="Buka modal daftar partai pertandingan"
+                  >
+                    <ListOrdered className="w-3 h-3 text-amber-300" />
+                    <span>PILIH PARTAI</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => { playBeep('click'); dispatch('SEKRETARIS_ADJUST_PARTAI', { offset: -1 }); }}
-                    className="px-2.5 py-1 text-[10px] font-black uppercase bg-slate-900 border border-slate-800 text-slate-305 hover:bg-slate-800 rounded-md cursor-pointer transition-all"
+                    className="px-2.5 py-1 text-[10px] font-black uppercase bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 rounded-md cursor-pointer transition-all"
                   >
                     ← P -1
                   </button>
                   <span className="text-xs font-mono font-black text-amber-400 px-1.5 self-center">P{state.partai}</span>
                   <button
                     onClick={() => { playBeep('click'); dispatch('SEKRETARIS_ADJUST_PARTAI', { offset: 1 }); }}
-                    className="px-2.5 py-1 text-[10px] font-black uppercase bg-slate-900 border border-slate-800 text-slate-305 hover:bg-slate-800 rounded-md cursor-pointer transition-all"
+                    className="px-2.5 py-1 text-[10px] font-black uppercase bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 rounded-md cursor-pointer transition-all"
                   >
                     P +1 →
                   </button>
@@ -1042,17 +1392,17 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               <div className="grid grid-cols-2 gap-3 border-b border-slate-900 pb-2">
                 {/* Blue Side Adjustment */}
                 <div className="flex flex-col gap-1 text-left">
-                  <span className="text-[8px] font-black uppercase text-cyan-405">Koreksi Skor Biru:</span>
+                  <span className="text-[8px] font-black uppercase text-cyan-400">Koreksi Skor Biru:</span>
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => { playBeep('warning'); dispatch('SEKRETARIS_ADJUST_SCORE', { sudut: 'biru', amount: -1 }); }}
-                      className="flex-1 py-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-450 text-[10px] font-black rounded-md cursor-pointer"
+                      className="flex-1 py-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-400 text-[10px] font-black rounded-md cursor-pointer"
                     >
                       -1
                     </button>
                     <button
                       onClick={() => { playBeep('valid'); dispatch('SEKRETARIS_ADJUST_SCORE', { sudut: 'biru', amount: 1 }); }}
-                      className="flex-1 py-1 bg-cyan-950/20 hover:bg-cyan-950/40 border border-cyan-900/30 text-cyan-405 text-[10px] font-black rounded-md cursor-pointer"
+                      className="flex-1 py-1 bg-cyan-950/20 hover:bg-cyan-950/40 border border-cyan-900/30 text-cyan-400 text-[10px] font-black rounded-md cursor-pointer"
                     >
                       +1
                     </button>
@@ -1065,13 +1415,13 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => { playBeep('warning'); dispatch('SEKRETARIS_ADJUST_SCORE', { sudut: 'merah', amount: -1 }); }}
-                      className="flex-1 py-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-455 text-[10px] font-black rounded-md cursor-pointer"
+                      className="flex-1 py-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-400 text-[10px] font-black rounded-md cursor-pointer"
                     >
                       -1
                     </button>
                     <button
                       onClick={() => { playBeep('valid'); dispatch('SEKRETARIS_ADJUST_SCORE', { sudut: 'merah', amount: 1 }); }}
-                      className="flex-1 py-1 bg-red-955/20 hover:bg-red-955/40 border border-red-900/30 text-red-400 text-[10px] font-black rounded-md cursor-pointer"
+                      className="flex-1 py-1 bg-red-950/40 hover:bg-red-900/40 border border-red-900/30 text-red-400 text-[10px] font-black rounded-md cursor-pointer"
                     >
                       +1
                     </button>
@@ -1090,7 +1440,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         dispatch('SEKRETARIS_DECLARE_WINNER', { winner: 'merah' });
                       }
                     }}
-                    className="py-1 bg-red-955/30 hover:bg-red-900/40 border border-red-900/50 text-red-400 text-[9px] md:text-[10px] font-black uppercase rounded-md cursor-pointer transition-all"
+                    className="py-1 bg-red-950/40 hover:bg-red-900/40 border border-red-900/50 text-red-400 text-[9px] md:text-[10px] font-black uppercase rounded-md cursor-pointer transition-all"
                   >
                     Menang UD MERAH
                   </button>
@@ -1101,7 +1451,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                         dispatch('SEKRETARIS_DECLARE_WINNER', { winner: 'biru' });
                       }
                     }}
-                    className="py-1 bg-blue-955/30 hover:bg-blue-900/40 border border-blue-900/50 text-blue-400 text-[9px] md:text-[10px] font-black uppercase rounded-md cursor-pointer transition-all"
+                    className="py-1 bg-blue-950/40 hover:bg-blue-900/40 border border-blue-900/50 text-blue-400 text-[9px] md:text-[10px] font-black uppercase rounded-md cursor-pointer transition-all"
                   >
                     Menang UD BIRU
                   </button>
@@ -1110,8 +1460,8 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Active profiles, Score summary (Col 5) */}
-          <div className="col-span-5 flex flex-col justify-between bg-slate-900/40 p-4 rounded-xl border border-slate-800/80 min-h-0">
+          {/* RIGHT COLUMN: Active profiles, Score summary (Col 5 on desktop) */}
+          <div className="lg:col-span-5 flex flex-col gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
             
             {/* Active profile headers summary cards */}
             <div className="flex flex-col gap-2.5">
@@ -1120,11 +1470,11 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               {/* Blue corner info */}
               <div className="bg-gradient-to-r from-blue-950/20 to-slate-900/55 p-2.5 rounded border border-blue-900/40 flex justify-between items-center shadow-md">
                 <div className="truncate max-w-[12rem]">
-                  <span className="text-[8px] font-black uppercase text-cyan-405">SUDUT BIRU</span>
+                  <span className="text-[8px] font-black uppercase text-cyan-400">SUDUT BIRU</span>
                   <div className="text-xs font-black text-white uppercase truncate">{state.atletBiru.nama}</div>
                   <div className="text-[10px] text-blue-400 font-mono truncate">{state.atletBiru.kontingen}</div>
                 </div>
-                <div className="text-xl font-mono text-cyan-405 font-black">{state.scores.biru.total}</div>
+                <div className="text-xl font-mono text-cyan-400 font-black">{state.scores.biru.total}</div>
               </div>
 
               {/* Red corner info */}
@@ -1136,6 +1486,19 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                 </div>
                 <div className="text-xl font-mono text-red-500 font-black">{state.scores.merah.total}</div>
               </div>
+            </div>
+
+            {/* Real-Time Event Log Compact Feed Widget */}
+            <div className="h-72 flex flex-col shrink-0">
+              <EventLog
+                state={state}
+                theme={theme}
+                compact={true}
+                onExpand={() => {
+                  playBeep('click');
+                  setActiveTab('events');
+                }}
+              />
             </div>
 
             {/* PARTAI SELANJUTNYA (NEXT MATCH) */}
@@ -1215,44 +1578,107 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                   <Play className="w-3 h-3" />
                   Muat Partai Selanjutnya
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playBeep('click');
+                    setShowPilihPartaiModal(true);
+                  }}
+                  className="w-full mt-2 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 font-black uppercase text-[10px] rounded-lg tracking-wider transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <ListOrdered className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Pilih Partai Lainnya (Daftar Partai)</span>
+                </button>
+              </div>
+            )}
+
+            {!nextMatchInfo && (
+              <div className={`mt-3 p-3 rounded-xl border ${theme === 'dark' ? 'bg-slate-950/60 border-slate-900/60' : 'bg-white border-slate-200'} shadow-sm text-center flex flex-col gap-2`}>
+                <span className="text-[10px] font-mono uppercase text-slate-400 font-bold">Navigasi Pertandingan:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playBeep('click');
+                    setShowPilihPartaiModal(true);
+                  }}
+                  className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black uppercase text-xs rounded-lg tracking-wider transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                >
+                  <ListOrdered className="w-4 h-4 text-slate-950" />
+                  <span>PILIH PARTAI PERTANDINGAN</span>
+                </button>
               </div>
             )}
 
             {/* Complete downloadable logs history database */}
             <div className="mt-4 border-t border-slate-800 pt-3 flex flex-col gap-2">
-              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest font-mono block">Dokumen Resmi Hasil Pertandingan</span>
+              <span className="text-[9px] font-black uppercase text-amber-400 tracking-widest font-mono flex items-center justify-between">
+                <span>Dokumen Resmi & Rekapitulasi Nilai</span>
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-sans font-bold">PB IPSI PDF</span>
+              </span>
+
+              {/* Primary Action Button: Cetak Rekapitulasi Nilai Akhir PDF */}
+              <button
+                type="button"
+                onClick={handleOpenRekapModal}
+                title="Buka dialog resmi pencetakan lembar rekapitulasi nilai akhir partai (PDF)"
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-950/40 border border-amber-400/60 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
+              >
+                <Printer className="w-4 h-4 text-slate-950" />
+                <span>Cetak Rekapitulasi Nilai Akhir (PDF)</span>
+              </button>
+
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={handleExportCSV}
-                  className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-350 font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                  onClick={handleExportPDF}
+                  title="Unduh langsung PDF rekapitulasi nilai akhir partai saat ini"
+                  className="py-2 px-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-amber-300 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-sm"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  Ekspor CSV
+                  <FileText className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Cetak Cepat Partai Ini</span>
                 </button>
                 <button
-                  onClick={handleExportPDF}
-                  className="py-2 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-900/60 rounded-lg text-emerald-400 font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                  onClick={handleExportCSV}
+                  title="Unduh seluruh rekap riwayat pertandingan dalam format Excel / CSV"
+                  className="py-2 px-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-350 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors"
                 >
-                  <FileText className="w-3.5 h-3.5" />
-                  Cetak PDF
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Ekspor CSV</span>
                 </button>
               </div>
+
+              {/* Tombol Laporan Keseluruhan Seluruh Pertandingan */}
+              <button
+                onClick={handleExportAllPDF}
+                title="Unduh Buku Laporan Resmi Seluruh Pertandingan Lengkap (Semua Partai Tanding, Kategori Seni & Medali) dalam format PDF"
+                className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-extrabold text-[11px] uppercase tracking-wider rounded-lg border border-slate-800 hover:border-slate-700 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-400" />
+                <span>Buku Rekap Seluruh Partai (PDF)</span>
+              </button>
             </div>
 
             {/* Back to roster option */}
             <button
               onClick={resetOrNextPartai}
-              className="mt-3 py-2 bg-red-950/30 hover:bg-red-900/40 cursor-pointer text-red-400 border border-red-955 rounded-lg text-xs font-bold uppercase transition-transform active:scale-[0.98] text-center"
+              className="mt-2 py-2.5 bg-red-950/40 hover:bg-red-900/40 cursor-pointer text-red-400 border border-red-900/60 rounded-lg text-xs font-bold uppercase transition-transform active:scale-[0.98] text-center"
             >
               Reset/Selesaikan Pertandingan Ini
             </button>
           </div>
 
         </div>
+      </div>
+      ) : activeTab === 'events' ? (
+        <div className="flex-1 my-2 min-h-0 overflow-hidden flex flex-col">
+          <EventLog state={state} theme={theme} />
+        </div>
       ) : activeTab === 'jadwal' ? (
-        <JadwalTab theme={theme} state={state} tgrState={tgrState} dispatch={dispatch} />
+        <div className="flex-1 my-2 min-h-0 overflow-hidden flex flex-col">
+          <JadwalTab theme={theme} state={state} tgrState={tgrState} dispatch={dispatch} />
+        </div>
       ) : activeTab === 'seni' ? (
-        <div className="flex-1 my-2 min-h-0">
+        <div className="flex-1 my-2 min-h-0 overflow-hidden flex flex-col">
           <SekretarisSeniMultiPesertaPanel
             tgrState={tgrState || ({} as any)}
             state={state}
@@ -1276,7 +1702,7 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-slate-900 border border-slate-800 max-w-sm w-full p-6 rounded-2xl shadow-2xl text-center"
             >
-              <HelpCircle className="w-12 h-12 text-emerald-450 mx-auto mb-3 animate-pulse" />
+              <HelpCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3 animate-pulse" />
               <h3 className="text-base font-black text-white uppercase tracking-tight mb-1.5">
                 LANJUT KE BABAK BERIKUTNYA?
               </h3>
@@ -1373,7 +1799,8 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                           onClick={() => {
                             playBeep('valid');
                             navigator.clipboard.writeText(url);
-                            alert(`Link ${item.label} berhasil disalin!`);
+                            setToastMsg(`Link ${item.label} berhasil disalin!`);
+                            setTimeout(() => setToastMsg(null), 3000);
                           }}
                           className="w-full py-1 text-[9px] uppercase font-bold tracking-wider rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
                         >
@@ -1397,6 +1824,524 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
             </motion.div>
           </div>
         )}
+
+        {/* Logo Monitor Modal Dialog */}
+        {showLogoModal && (
+          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-slate-950 border border-slate-800 max-w-xl w-full p-6 rounded-3xl shadow-2xl relative overflow-hidden text-slate-100"
+            >
+              <div className="flex justify-between items-start mb-5 pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-2 text-amber-400">
+                    <span>🖼️</span> PENGATURAN LOGO LAYAR MONITOR
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Ubah logo yang tampil di sudut kiri dan kanan atas Layar Monitor Pertandingan.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { playBeep('click'); setShowLogoModal(false); }}
+                  className="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-xs font-bold text-slate-400 transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Logo Kiri Card */}
+                <div className="flex flex-col items-center bg-slate-900/90 p-4 rounded-2xl border border-slate-800 text-center">
+                  <span className="text-xs font-bold text-slate-300 uppercase mb-2">Logo Kiri</span>
+                  <div className="w-24 h-24 rounded-2xl bg-white border-2 border-slate-300 flex items-center justify-center p-2 overflow-hidden shadow-inner mb-3">
+                    {state.logoKiri ? (
+                      <img src={state.logoKiri} alt="Logo Kiri" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400">
+                        <span className="text-3xl">🛡️</span>
+                        <span className="text-[10px] font-black text-slate-600 mt-1">IPSI ASLI</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col w-full gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { playBeep('click'); fileInputKiriRef.current?.click(); }}
+                      className="w-full py-2 px-3 cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase rounded-xl tracking-wider transition-all shadow-sm"
+                    >
+                      {state.logoKiri ? 'Ganti Logo Kiri' : 'Unggah Logo Kiri'}
+                    </button>
+                    {state.logoKiri && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playBeep('click');
+                          dispatch('UPLOAD_LOGOS', { logoKiri: null });
+                          setToastMsg('Logo kiri dikembalikan ke logo IPSI bawaan!');
+                          setTimeout(() => setToastMsg(null), 3500);
+                        }}
+                        className="w-full py-1 text-[10px] text-slate-400 hover:text-red-400 font-bold uppercase transition-colors"
+                      >
+                        Reset ke Logo IPSI
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Logo Kanan Card */}
+                <div className="flex flex-col items-center bg-slate-900/90 p-4 rounded-2xl border border-slate-800 text-center">
+                  <span className="text-xs font-bold text-slate-300 uppercase mb-2">Logo Kanan</span>
+                  <div className="w-24 h-24 rounded-2xl bg-white border-2 border-slate-300 flex items-center justify-center p-2 overflow-hidden shadow-inner mb-3">
+                    {state.logoKanan ? (
+                      <img src={state.logoKanan} alt="Logo Kanan" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400">
+                        <span className="text-3xl">🛡️</span>
+                        <span className="text-[10px] font-black text-slate-600 mt-1">IPSI ASLI</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col w-full gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { playBeep('click'); fileInputKananRef.current?.click(); }}
+                      className="w-full py-2 px-3 cursor-pointer bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase rounded-xl tracking-wider transition-all shadow-sm"
+                    >
+                      {state.logoKanan ? 'Ganti Logo Kanan' : 'Unggah Logo Kanan'}
+                    </button>
+                    {state.logoKanan && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playBeep('click');
+                          dispatch('UPLOAD_LOGOS', { logoKanan: null });
+                          setToastMsg('Logo kanan dikembalikan ke logo IPSI bawaan!');
+                          setTimeout(() => setToastMsg(null), 3500);
+                        }}
+                        className="w-full py-1 text-[10px] text-slate-400 hover:text-red-400 font-bold uppercase transition-colors"
+                      >
+                        Reset ke Logo IPSI
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
+                {(state.logoKiri || state.logoKanan) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playBeep('warning');
+                      dispatch('UPLOAD_LOGOS', { logoKiri: null, logoKanan: null, logoTengah: null });
+                      setToastMsg('Semua logo telah dikembalikan ke logo IPSI bawaan!');
+                      setTimeout(() => setToastMsg(null), 3500);
+                    }}
+                    className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-wider bg-red-950/40 border border-red-800/40 rounded-lg cursor-pointer transition-colors"
+                  >
+                    Reset Semua ke IPSI Bawaan
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500 font-mono">Status: Menggunakan Logo IPSI Bawaan</span>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => { playBeep('click'); setShowLogoModal(false); }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase rounded-xl tracking-wider transition-all shadow-md ml-auto"
+                >
+                  Selesai
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal Pilih Partai Pertandingan */}
+        {showPilihPartaiModal && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[9999] flex items-center justify-center p-3 sm:p-5">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="bg-slate-950 border border-slate-800 max-w-4xl w-full max-h-[92vh] flex flex-col rounded-3xl shadow-2xl relative overflow-hidden text-slate-100"
+            >
+              {/* Modal Header */}
+              <div className="flex justify-between items-center p-4 sm:p-5 border-b border-slate-850 bg-slate-900/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
+                    <ListOrdered className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black uppercase tracking-tight flex items-center gap-2 text-white">
+                      <span>PILIH PARTAI PERTANDINGAN</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Pilih dan muat partai tanding ke sistem scoring gelanggang aktif
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono">
+                    <span className="text-slate-400">Aktif Sekarang:</span>
+                    <span className="font-black text-amber-400">P{state.partai || '01'}</span>
+                  </div>
+                  <button
+                    onClick={() => { playBeep('click'); setShowPilihPartaiModal(false); }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 cursor-pointer transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Toolbar: Search, Status Filter & Direct Custom Partai Input */}
+              <div className="p-4 border-b border-slate-850 bg-slate-900/30 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                {/* Search Box */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={partaiSearchQuery}
+                    onChange={(e) => setPartaiSearchQuery(e.target.value)}
+                    placeholder="Cari no. partai, atlet, kontingen, kelas..."
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-slate-900 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none font-bold"
+                  />
+                  {partaiSearchQuery && (
+                    <button
+                      onClick={() => setPartaiSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => { playBeep('click'); setPartaiFilterStatus('all'); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      partaiFilterStatus === 'all'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Semua ({scheduledList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { playBeep('click'); setPartaiFilterStatus('unfinished'); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      partaiFilterStatus === 'unfinished'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Belum Main ({scheduledList.filter(x => !x.isFinished).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { playBeep('click'); setPartaiFilterStatus('finished'); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      partaiFilterStatus === 'finished'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Selesai ({scheduledList.filter(x => x.isFinished).length})
+                  </button>
+                </div>
+
+                {/* Jump to Custom Partai Box */}
+                <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 pl-2.5 rounded-xl border border-amber-500/30">
+                  <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">P</span>
+                  <input
+                    type="text"
+                    value={customPartaiInput}
+                    onChange={(e) => setCustomPartaiInput(e.target.value)}
+                    placeholder="No Partai"
+                    className="w-16 py-1 px-1.5 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white font-mono font-bold text-center outline-none focus:border-amber-400"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleLoadCustomPartai(customPartaiInput);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleLoadCustomPartai(customPartaiInput)}
+                    disabled={!customPartaiInput.trim()}
+                    className="py-1 px-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:pointer-events-none text-slate-950 font-black text-xs uppercase rounded-lg transition-all cursor-pointer"
+                  >
+                    Terapkan
+                  </button>
+                </div>
+              </div>
+
+              {/* Match Card Grid / List Area */}
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar max-h-[60vh] overscroll-contain">
+                {scheduledList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-center bg-slate-900/30 rounded-2xl border border-dashed border-slate-800">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-850 flex items-center justify-center text-slate-400 mb-3 text-2xl">
+                      📋
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-200 uppercase">
+                      Belum Ada Partai di Bagan Pertandingan
+                    </h4>
+                    <p className="text-xs text-slate-400 max-w-md mt-1 mb-4">
+                      Belum ada jadwal pertandingan yang dibuat atau diimpor di sistem bagan. Anda dapat memasukkan nomor partai secara manual menggunakan kotak di atas, atau membuka tab Bagan untuk membuat jadwal pertandingan.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPilihPartaiModal(false);
+                          setActiveTab('config');
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase rounded-xl transition-all shadow-md cursor-pointer"
+                      >
+                        Buka Tab Pengaturan / Bagan
+                      </button>
+                    </div>
+                  </div>
+                ) : filteredPartaiList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-center bg-slate-900/30 rounded-2xl border border-slate-800">
+                    <p className="text-sm text-slate-400">
+                      Tidak ada partai yang cocok dengan kata kunci <span className="text-amber-400 font-bold">"{partaiSearchQuery}"</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPartaiSearchQuery('');
+                        setPartaiFilterStatus('all');
+                      }}
+                      className="mt-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 rounded-lg cursor-pointer transition-colors"
+                    >
+                      Reset Filter & Pencarian
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {filteredPartaiList.map((item, idx) => (
+                      <div
+                        key={`${item.uniqueId}__${idx}`}
+                        className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
+                          item.isActive
+                            ? 'bg-emerald-950/30 border-emerald-500 shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/40'
+                            : item.isFinished
+                            ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 opacity-90'
+                            : 'bg-slate-900/70 border-slate-800 hover:border-amber-500/50 hover:bg-slate-900 shadow-sm'
+                        }`}
+                      >
+                        {/* Card Top: Partai Badge, Category & Round */}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2.5 py-0.5 rounded-lg font-mono font-black text-xs border ${
+                                item.isActive
+                                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                                  : item.isFinished
+                                  ? 'bg-slate-800 text-slate-300 border-slate-700'
+                                  : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                              }`}>
+                                P{item.num.toString().padStart(2, '0')}
+                              </span>
+                              <span className="text-[11px] font-bold text-slate-300 truncate max-w-[14rem]" title={item.categoryName}>
+                                [{item.gender.toUpperCase()}] {item.categoryName.replace(/\s*\(.*\)/, '')}
+                              </span>
+                            </div>
+
+                            {/* Status Badge */}
+                            <div>
+                              {item.isActive ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500 text-slate-950 animate-pulse">
+                                  ● AKTIF
+                                </span>
+                              ) : item.isFinished ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-800 text-emerald-400 border border-emerald-900/40">
+                                  ✓ SELESAI
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-800/80 text-amber-400 border border-amber-900/40">
+                                  ⏳ TERJADWAL
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-[10px] font-mono text-slate-400 uppercase font-bold mb-2.5">
+                            {item.round}
+                          </div>
+
+                          {/* Matchup VS */}
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                            {/* Sudut Merah */}
+                            <div className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 flex flex-col justify-between">
+                              <div>
+                                <span className="text-[8px] font-black uppercase text-red-400 block tracking-wider">
+                                  SUDUT MERAH
+                                </span>
+                                <div className="font-black text-slate-100 uppercase truncate mt-0.5 text-[11px]" title={item.match.atletMerah.nama || 'TBD'}>
+                                  {item.match.atletMerah.nama || 'Belum Ditentukan'}
+                                </div>
+                                <div className="text-[9px] text-red-300/80 font-mono truncate" title={item.match.atletMerah.kontingen || '-'}>
+                                  {item.match.atletMerah.kontingen || '-'}
+                                </div>
+                              </div>
+                              {item.match.winner === 'merah' && (
+                                <span className="text-[9px] font-black text-red-400 flex items-center gap-1 mt-1">
+                                  🏆 MENANG
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Sudut Biru */}
+                            <div className="p-2 rounded-xl bg-blue-950/20 border border-blue-900/30 flex flex-col justify-between">
+                              <div>
+                                <span className="text-[8px] font-black uppercase text-cyan-400 block tracking-wider">
+                                  SUDUT BIRU
+                                </span>
+                                <div className="font-black text-slate-100 uppercase truncate mt-0.5 text-[11px]" title={item.match.atletBiru.nama || 'TBD'}>
+                                  {item.match.atletBiru.nama || 'Belum Ditentukan'}
+                                </div>
+                                <div className="text-[9px] text-cyan-300/80 font-mono truncate" title={item.match.atletBiru.kontingen || '-'}>
+                                  {item.match.atletBiru.kontingen || '-'}
+                                </div>
+                              </div>
+                              {item.match.winner === 'biru' && (
+                                <span className="text-[9px] font-black text-cyan-400 flex items-center gap-1 mt-1">
+                                  🏆 MENANG
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Action Button */}
+                        <div>
+                          {item.isActive ? (
+                            <div className="w-full text-center py-2 text-xs font-black text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 rounded-xl">
+                              Partai Ini Sedang Aktif di Gelanggang
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleLoadMatch(item)}
+                              className={`w-full py-2 px-3 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] ${
+                                item.isFinished
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md'
+                              }`}
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>{item.isFinished ? 'Muat Ulang Partai Ini' : 'Muat Partai Ini ke Gelanggang'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-850 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
+                <span className="font-mono text-[11px]">
+                  Total: <strong className="text-white">{filteredPartaiList.length}</strong> partai ditampilkan
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { playBeep('click'); setShowPilihPartaiModal(false); }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal Konfirmasi Ganti Partai (Bila sedang berlangsung / ada skor) */}
+        {confirmLoadPartai && (
+          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="bg-slate-950 border border-amber-500/50 max-w-lg w-full p-6 rounded-3xl shadow-2xl relative overflow-hidden text-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                  <AlertTriangle className="w-6 h-6 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase text-amber-400 tracking-tight">
+                    Ganti Partai Pertandingan?
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Konfirmasi pergantian pertandingan yang sedang aktif
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-900/80 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2 mb-5">
+                <p>
+                  Partai saat ini (<strong className="text-amber-400">P{state.partai || '01'}</strong>) sedang berlangsung atau telah memiliki skor:
+                </p>
+                <div className="flex items-center justify-center gap-4 py-2 font-mono text-sm font-black bg-slate-950 rounded-xl border border-slate-850">
+                  <span className="text-red-400">MERAH: {state.scores.merah.total}</span>
+                  <span className="text-slate-600">vs</span>
+                  <span className="text-cyan-400">BIRU: {state.scores.biru.total}</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Memuat <strong className="text-white">Partai P{confirmLoadPartai.num.toString().padStart(2, '0')} - {confirmLoadPartai.categoryName}</strong> akan mereset skor dan ronde ke awal untuk pertandingan baru tersebut.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => { playBeep('click'); setConfirmLoadPartai(null); }}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs uppercase cursor-pointer transition-colors border border-slate-800"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExecuteLoadMatch(confirmLoadPartai)}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase cursor-pointer shadow-lg shadow-amber-950/40 transition-all active:scale-95"
+                >
+                  Ya, Muat Partai P{confirmLoadPartai.num.toString().padStart(2, '0')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Global Toast Notification */}
+        {toastMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-[10000] px-5 py-2.5 rounded-full bg-emerald-600 text-white font-bold text-xs shadow-2xl border border-emerald-400 flex items-center gap-2"
+          >
+            <span>✓</span>
+            <span>{toastMsg}</span>
+          </motion.div>
+        )}
+
+        {/* Modal Rekapitulasi Nilai Akhir PDF */}
+        <RekapitulasiNilaiPdfModal
+          isOpen={showRekapModal}
+          onClose={() => setShowRekapModal(false)}
+          state={state}
+          histories={histories}
+          theme={theme}
+        />
 
       </AnimatePresence>
     </div>

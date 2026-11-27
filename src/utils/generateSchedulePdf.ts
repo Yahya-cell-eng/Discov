@@ -157,10 +157,10 @@ export const DEFAULT_SAMPLE_MATCHES: ScheduleMatchRow[] = [
  * Generate high-precision, official IPSI Match Schedule PDF (A4 Portrait)
  * Matching the exact tournament layout (TRI GUNA SAKTI CUP XIV standard)
  */
-export function generateSchedulePdf(
+export function createSchedulePdfDoc(
   metadata: ScheduleMetadata,
   matches: ScheduleMatchRow[]
-): void {
+): { doc: jsPDF; filename: string } {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
   const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
@@ -446,7 +446,141 @@ export function generateSchedulePdf(
   });
 
   const filename = `Jadwal_Pertandingan_${(metadata.gelanggang || 'GELANGGANG_I').replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+  return { doc, filename };
+}
+
+export function generateSchedulePdf(
+  metadata: ScheduleMetadata,
+  matches: ScheduleMatchRow[]
+): void {
+  const { doc, filename } = createSchedulePdfDoc(metadata, matches);
   doc.save(filename);
+}
+
+export function buildSchedulePdfBlob(
+  metadata: ScheduleMetadata,
+  matches: ScheduleMatchRow[]
+): { blob: Blob; filename: string } {
+  const { doc, filename } = createSchedulePdfDoc(metadata, matches);
+  return {
+    blob: doc.output('blob'),
+    filename
+  };
+}
+
+export function buildTournamentSchedulePdfBlob(params: {
+  tournamentName?: string;
+  arenasList?: Array<{ id: string; nama: string; kode?: string; keterangan?: string }>;
+  allArenasMap?: Record<string, { state?: any; tgrState?: any; histories?: any[]; info?: any }>;
+  activeArenaId?: string;
+  activeState?: any;
+  activeTgrState?: any;
+}): { blob: Blob; filename: string } {
+  const {
+    tournamentName = 'Kejuaraan Pencak Silat',
+    arenasList = [],
+    allArenasMap = {},
+    activeArenaId = 'arena_1',
+    activeState,
+    activeTgrState
+  } = params;
+
+  const roundLabelIndo = (round?: string): string => {
+    const r = (round || '').toLowerCase();
+    if (r === 'final') return 'FINAL';
+    if (r === 'semi') return 'SEMI FINAL';
+    if (r === 'quarter') return 'PEREMPAT FINAL';
+    if (r === 'eighth') return '1/8 FINAL';
+    if (r === 'sixteenth') return '1/16 FINAL';
+    if (r === 'thirtysecond') return '1/32 FINAL';
+    return round ? round.toUpperCase() : 'PENYISIHAN';
+  };
+
+  const rows: ScheduleMatchRow[] = [];
+  const seenKeys = new Set<string>();
+  const arenaOrder = arenasList.length > 0
+    ? arenasList
+    : [{ id: activeArenaId, nama: activeState?.gelanggang || 'Gelanggang 1', kode: '1' }];
+
+  const addMatchesFromArena = (arenaLabel: string, st: any, tgr: any) => {
+    const baganCats = st?.baganCategories || st?.baganData || [];
+    if (Array.isArray(baganCats)) {
+      baganCats.forEach((cat: any) => {
+        const catGender = cat.gender === 'Putri' ? 'PI' : 'PA';
+        const shortKelas = `${cat.name || cat.kelas || 'Kelas'} ${catGender}`;
+        (cat.matches || []).forEach((m: any) => {
+          const merahNama = m.atletMerah?.nama || m.athlete1?.name || 'Sudut Merah';
+          const biruNama = m.atletBiru?.nama || m.athlete2?.name || 'Sudut Biru';
+          const partaiRaw = String(m.partai || rows.length + 1).replace(/Partai\s+/i, '');
+          const key = `T_${arenaLabel}_${cat.id || shortKelas}_${m.id || partaiRaw}`;
+          if (seenKeys.has(key)) return;
+          seenKeys.add(key);
+
+          rows.push({
+            no: rows.length + 1,
+            partai: partaiRaw,
+            kelas: `${shortKelas}${arenaOrder.length > 1 ? ` [${arenaLabel}]` : ''}`,
+            roundLabel: roundLabelIndo(m.round),
+            merahNama,
+            merahKontingen: m.atletMerah?.kontingen || m.athlete1?.contingent || '-',
+            biruNama,
+            biruKontingen: m.atletBiru?.kontingen || m.athlete2?.contingent || '-',
+            winner: m.winner || null,
+            remark: m.winner ? `MENANG ${String(m.winner).toUpperCase()}` : ''
+          });
+        });
+      });
+    }
+
+    const seniList = tgr?.pesertaList || [];
+    if (Array.isArray(seniList)) {
+      seniList.forEach((p: any, idx: number) => {
+        const partaiRaw = String(p.partai || p.noUrut || rows.length + 1).replace(/Partai\s+/i, '');
+        const key = `S_${arenaLabel}_${p.id || idx}_${partaiRaw}`;
+        if (seenKeys.has(key)) return;
+        seenKeys.add(key);
+        const finalScore = p.scores?.finalScore;
+        rows.push({
+          no: rows.length + 1,
+          partai: partaiRaw,
+          kelas: `SENI ${(p.kategori || 'TUNGGAL').toUpperCase()}`,
+          roundLabel: `${p.gender || ''} ${p.pool || 'POOL A'}`.trim().toUpperCase(),
+          merahNama: p.nama || 'Peserta Seni',
+          merahKontingen: p.kontingen || '-',
+          biruNama: typeof finalScore === 'number' ? `Nilai: ${finalScore.toFixed(3)}` : 'Tampil Solo/Regu',
+          biruKontingen: arenaLabel,
+          remark: p.status === 'Sudah Menilai' ? 'SELESAI' : 'TERJADWAL'
+        });
+      });
+    }
+  };
+
+  arenaOrder.forEach((arena) => {
+    const container = allArenasMap[arena.id];
+    const st = arena.id === activeArenaId ? activeState || container?.state : container?.state;
+    const tgr = arena.id === activeArenaId ? activeTgrState || container?.tgrState : container?.tgrState;
+    addMatchesFromArena(arena.nama || arena.id, st, tgr);
+  });
+
+  const activeArenaObj = arenaOrder.find((a) => a.id === activeArenaId) || arenaOrder[0];
+  const dateLabel = new Date().toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  const metadata: ScheduleMetadata = {
+    headerTitle: 'JADWAL PERTANDINGAN KEJUARAAN PENCAK SILAT',
+    headerSubtitle: tournamentName || activeState?.namaEvent || 'KEJUARAAN PENCAK SILAT',
+    headerLocationDate: dateLabel,
+    lokasiTanggal: dateLabel,
+    gelanggang: arenaOrder.length > 1 ? `SEMUA GELANGGANG (${arenaOrder.length})` : activeArenaObj?.nama || 'GELANGGANG I',
+    hariTanggal: dateLabel,
+    sesiNama: '1',
+    fase: 'RESMI'
+  };
+
+  return buildSchedulePdfBlob(metadata, rows);
 }
 
 /**

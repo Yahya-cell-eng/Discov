@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { TGRState, TGRPeserta } from '../types';
 import { playBeep } from '../utils/sound';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Key, Play, Pause, RefreshCw, AlertOctagon, Check, X, Shield, Lock, Unlock, HelpCircle, AlertCircle, Maximize2, Minimize2, Trophy } from 'lucide-react';
+import { ArrowLeft, Key, Play, Pause, RefreshCw, AlertOctagon, Check, X, Shield, Lock, Unlock, HelpCircle, AlertCircle, Maximize2, Minimize2, Trophy, Timer } from 'lucide-react';
 
 interface TGRKetuaPanelProps {
   state: TGRState;
@@ -86,6 +86,38 @@ export default function TGRKetuaPanel({ state, dispatch, onBack, theme }: TGRKet
       action: `Melakukan RESET TEKNIS (pembatalan nilai) untuk peserta: ${nama}`
     });
   };
+
+  const formatTime = (totalSecs: number) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const toggleTimer = async () => {
+    playBeep('click');
+    if (state.timerActive) {
+      await dispatch('TGR_PAUSE_TIMER');
+    } else {
+      await dispatch('TGR_START_TIMER');
+    }
+  };
+
+  // Shortcut Tombol SPASI untuk Mulai / Jeda Timer Seni (TGR)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        const target = e.target as HTMLElement;
+        const tagName = target?.tagName?.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        toggleTimer();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.timerActive]);
 
   const activePeserta = state.pesertaList.find(p => p.id === state.activePesertaId);
 
@@ -174,6 +206,34 @@ export default function TGRKetuaPanel({ state, dispatch, onBack, theme }: TGRKet
               MODERATOR KOREKSI NILAI & RESIDUAL TEKNIS ARENA
             </p>
           </div>
+        </div>
+
+        {/* Center Live Arena Performance Timer with Spacebar Controller */}
+        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1 shadow-inner">
+          <Timer className={`w-4 h-4 ${state.timerActive ? 'text-amber-400 animate-spin' : 'text-slate-400'}`} />
+          <div className="text-right">
+            <div className="text-[9px] font-mono font-bold tracking-wider text-slate-400 uppercase leading-none">
+              WAKTU SENI
+            </div>
+            <div className="text-xl font-mono font-black text-amber-400 tracking-wider leading-none mt-0.5">
+              {formatTime(state.timerSeconds)}
+            </div>
+          </div>
+          <button
+            onClick={toggleTimer}
+            title="Klik atau tekan Tombol Spasi (Space) untuk Mulai / Jeda Timer Seni"
+            className={`ml-1.5 px-3 py-1.5 rounded-lg text-xs font-black font-sport uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow ${
+              state.timerActive
+                ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            }`}
+          >
+            {state.timerActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            <span>{state.timerActive ? 'JEDA' : 'MULAI'}</span>
+            <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-black/35 text-white/90 border border-white/20">
+              SPASI
+            </span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2">

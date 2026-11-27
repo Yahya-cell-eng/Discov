@@ -599,7 +599,7 @@ export default function RekapitulasiSkor({
                       const isExpanded = expandedKontingen === item.kontingen;
 
                       return (
-                        <div key={item.kontingen} className="transition-colors">
+                        <div key={`${item.kontingen || 'k'}__${idx}`} className="transition-colors">
                           <div
                             onClick={() => { playBeep('click'); setExpandedKontingen(isExpanded ? null : item.kontingen); }}
                             className={`grid grid-cols-12 items-center p-3 text-xs cursor-pointer hover:bg-slate-900/80 transition-colors ${
@@ -921,7 +921,7 @@ export default function RekapitulasiSkor({
                             return ath.nama.toLowerCase().includes(q) || ath.kontingen.toLowerCase().includes(q) || ath.kategori.toLowerCase().includes(q);
                           })
                           .map((ath, idx) => (
-                            <tr key={ath.id || idx} className="hover:bg-slate-900/60">
+                            <tr key={`${ath.id || 'ath'}__${idx}`} className="hover:bg-slate-900/60">
                               <td className="p-3 text-slate-500">{idx + 1}</td>
                               <td className="p-3 font-bold text-white uppercase">{ath.nama}</td>
                               <td className="p-3 text-amber-300 font-bold uppercase">{ath.kontingen}</td>
@@ -961,7 +961,7 @@ export default function RekapitulasiSkor({
                     </thead>
                     <tbody className="divide-y divide-slate-800/70 text-slate-300">
                       {filteredHistories.map((h, idx) => (
-                        <tr key={h.id || idx} className="hover:bg-slate-900/60">
+                        <tr key={`${h.id || 'h'}__${idx}`} className="hover:bg-slate-900/60">
                           <td className="p-3 font-bold text-slate-400">Partai {h.partai}</td>
                           <td className="p-3 text-slate-300">{h.kelas} ({h.gender})</td>
                           <td className={`p-3 font-bold ${h.winner === 'merah' ? 'text-red-400' : 'text-slate-400'}`}>
@@ -1010,7 +1010,7 @@ export default function RekapitulasiSkor({
                     </thead>
                     <tbody className="divide-y divide-slate-800/70 text-slate-300">
                       {filteredTgr.map((p, idx) => (
-                        <tr key={p.id || idx} className="hover:bg-slate-900/60">
+                        <tr key={`${p.id || 'p'}__${idx}`} className="hover:bg-slate-900/60">
                           <td className="p-3 font-black text-amber-400">#{p.ranking || (idx + 1)}</td>
                           <td className="p-3 text-slate-400">{p.noUrut}</td>
                           <td className="p-3 font-bold text-white uppercase">{p.nama}</td>
@@ -1055,8 +1055,8 @@ export default function RekapitulasiSkor({
             </tr>
           </thead>
           <tbody>
-            {contingentRecords.map((r) => (
-              <tr key={r.kontingen}>
+            {contingentRecords.map((r, idx) => (
+              <tr key={`${r.kontingen || 'k'}__${idx}`}>
                 <td className="border border-black p-1 text-center font-bold">{r.rank}</td>
                 <td className="border border-black p-1 font-bold">{r.kontingen}</td>
                 <td className="border border-black p-1 text-center">{r.totalAtlet}</td>

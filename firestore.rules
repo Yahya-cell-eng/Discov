@@ -1,0 +1,342 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'yhendrasahroni@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isTournamentOwner(tournamentId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/tournaments/$(tournamentId)) &&
+        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId == request.auth.uid;
+    }
+
+    function isTournamentMember(tournamentId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/tournaments/$(tournamentId)/members/$(request.auth.uid));
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'role', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.role in ['admin', 'superadmin'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserPublicProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'activeTournamentId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+        (!('activeTournamentId' in data) || isValidId(data.activeTournamentId)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTournament(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'namaEvent', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'namaEvent', 'lokasi', 'penyelenggara', 'tanggalMulai', 'tanggalSelesai', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.ownerId) &&
+        data.namaEvent is string && data.namaEvent.size() >= 1 && data.namaEvent.size() <= 160 &&
+        (!('lokasi' in data) || (data.lokasi is string && data.lokasi.size() <= 160)) &&
+        (!('penyelenggara' in data) || (data.penyelenggara is string && data.penyelenggara.size() <= 160)) &&
+        (!('tanggalMulai' in data) || (data.tanggalMulai is string && data.tanggalMulai.size() <= 40)) &&
+        (!('tanggalSelesai' in data) || (data.tanggalSelesai is string && data.tanggalSelesai.size() <= 40)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTournamentMember(data) {
+      return data.keys().hasAll(['uid', 'role', 'displayName', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'displayName', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.role in ['owner', 'sekretaris', 'dewan', 'juri', 'operator'] &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidArenaSyncState(data) {
+      return data.keys().hasAll(['arenaId', 'ownerId', 'nama', 'kode', 'modeAktif', 'status', 'matchState', 'tgrState', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['arenaId', 'ownerId', 'nama', 'kode', 'keterangan', 'modeAktif', 'status', 'matchState', 'tgrState', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.arenaId) &&
+        isValidId(data.ownerId) &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 100 &&
+        data.kode is string && data.kode.size() >= 1 && data.kode.size() <= 20 &&
+        (!('keterangan' in data) || (data.keterangan is string && data.keterangan.size() <= 160)) &&
+        data.modeAktif in ['tanding', 'seni'] &&
+        data.status in ['aktif', 'istirahat', 'selesai'] &&
+        data.matchState is map &&
+        data.tgrState is map &&
+        isValidId(data.updatedBy) &&
+        data.updatedBy == request.auth.uid &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMatchHistoryRecord(data) {
+      return data.keys().hasAll(['id', 'arenaId', 'ownerId', 'partai', 'kelas', 'gender', 'atletMerah', 'atletBiru', 'skorAkhirMerah', 'skorAkhirBiru', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'arenaId', 'ownerId', 'partai', 'kelas', 'gender', 'atletMerah', 'atletBiru', 'winner', 'skorAkhirMerah', 'skorAkhirBiru', 'tanggal', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.arenaId) &&
+        isValidId(data.ownerId) &&
+        data.partai is string && data.partai.size() >= 1 && data.partai.size() <= 40 &&
+        data.kelas is string && data.kelas.size() >= 1 && data.kelas.size() <= 80 &&
+        data.gender in ['Putra', 'Putri'] &&
+        data.atletMerah is map &&
+        data.atletBiru is map &&
+        (!('winner' in data) || data.winner == null || (data.winner is string && data.winner.size() <= 20)) &&
+        data.skorAkhirMerah is number &&
+        data.skorAkhirBiru is number &&
+        (!('tanggal' in data) || (data.tanggal is string && data.tanggal.size() <= 60)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidTournamentConfigDoc(data) {
+      return data.keys().hasAll(['configId', 'ownerId', 'payload', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['configId', 'ownerId', 'payload', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.configId) &&
+        isValidId(data.ownerId) &&
+        data.payload is map &&
+        isValidId(data.updatedBy) &&
+        data.updatedBy == request.auth.uid &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCloudBackupSnapshot(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'label', 'totalArenas', 'totalHistories', 'payload', 'createdBy', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'label', 'totalArenas', 'totalHistories', 'payload', 'createdBy', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.ownerId) &&
+        data.label is string && data.label.size() >= 1 && data.label.size() <= 120 &&
+        data.totalArenas is number &&
+        data.totalHistories is number &&
+        data.payload is map &&
+        isValidId(data.createdBy) &&
+        data.createdBy == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    // 4. Collection Security Rules
+
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(adminId) && isAdmin() && isValidAdminUser(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(adminId) && isAdmin() && isValidAdminUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['role']);
+      allow delete: if isValidId(adminId) && isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isVerifiedUser() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(userId) && isOwner(userId) &&
+        isValidUserPublicProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && (isOwner(userId) || isAdmin()) &&
+        isValidUserPublicProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'activeTournamentId', 'updatedAt']);
+      allow delete: if isValidId(userId) && isAdmin();
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow create: if isValidId(userId) && isValidId(docId) && isOwner(userId) &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().uid == userId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin()) &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && isAdmin();
+      }
+    }
+
+    match /tournaments/{tournamentId} {
+      allow get: if isValidId(tournamentId) && (
+        isAdmin() ||
+        (isVerifiedUser() && (
+          resource.data.ownerId == request.auth.uid ||
+          isTournamentMember(tournamentId)
+        ))
+      );
+      allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isValidId(tournamentId) && isVerifiedUser() &&
+        isValidTournament(incoming()) &&
+        incoming().id == tournamentId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(tournamentId) && (isTournamentOwner(tournamentId) || isAdmin()) &&
+        isValidTournament(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['namaEvent', 'lokasi', 'penyelenggara', 'tanggalMulai', 'tanggalSelesai', 'updatedAt']);
+      allow delete: if isValidId(tournamentId) && (isTournamentOwner(tournamentId) || isAdmin());
+
+      match /members/{memberId} {
+        allow get: if isValidId(tournamentId) && isValidId(memberId) && (
+          isOwner(memberId) || isTournamentOwner(tournamentId) || isAdmin()
+        );
+        allow list: if isVerifiedUser() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow create: if isValidId(tournamentId) && isValidId(memberId) &&
+          (isTournamentOwner(tournamentId) || isAdmin()) &&
+          isValidTournamentMember(incoming()) &&
+          incoming().uid == memberId &&
+          incoming().createdAt == request.time;
+        allow update: if isValidId(tournamentId) && isValidId(memberId) &&
+          (isTournamentOwner(tournamentId) || isAdmin()) &&
+          isValidTournamentMember(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'displayName']);
+        allow delete: if isValidId(tournamentId) && isValidId(memberId) &&
+          (isTournamentOwner(tournamentId) || isAdmin());
+      }
+
+      match /arenas/{arenaId} {
+        allow get: if isValidId(tournamentId) && isValidId(arenaId) && (
+          isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()
+        );
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(tournamentId) && isValidId(arenaId) &&
+          (isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()) &&
+          isValidArenaSyncState(incoming()) &&
+          incoming().arenaId == arenaId &&
+          incoming().ownerId == get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(tournamentId) && isValidId(arenaId) &&
+          (isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()) &&
+          isValidArenaSyncState(incoming()) &&
+          incoming().arenaId == existing().arenaId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'kode', 'keterangan', 'modeAktif', 'status', 'matchState', 'tgrState', 'updatedBy', 'updatedAt']);
+        allow delete: if isValidId(tournamentId) && isValidId(arenaId) &&
+          (isTournamentOwner(tournamentId) || isAdmin());
+      }
+
+      match /histories/{historyId} {
+        allow get: if isValidId(tournamentId) && isValidId(historyId) && (
+          isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()
+        );
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(tournamentId) && isValidId(historyId) &&
+          (isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()) &&
+          isValidMatchHistoryRecord(incoming()) &&
+          incoming().id == historyId &&
+          incoming().ownerId == get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(tournamentId) && isValidId(historyId) &&
+          (isTournamentOwner(tournamentId) || isAdmin());
+      }
+
+      match /configs/{configId} {
+        allow get: if isValidId(tournamentId) && isValidId(configId) && (
+          isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()
+        );
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(tournamentId) && isValidId(configId) &&
+          (isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()) &&
+          isValidTournamentConfigDoc(incoming()) &&
+          incoming().configId == configId &&
+          incoming().ownerId == get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(tournamentId) && isValidId(configId) &&
+          (isTournamentOwner(tournamentId) || isTournamentMember(tournamentId) || isAdmin()) &&
+          isValidTournamentConfigDoc(incoming()) &&
+          incoming().configId == existing().configId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['payload', 'updatedBy', 'updatedAt']);
+        allow delete: if isValidId(tournamentId) && isValidId(configId) &&
+          (isTournamentOwner(tournamentId) || isAdmin());
+      }
+
+      match /backups/{backupId} {
+        allow get: if isValidId(tournamentId) && isValidId(backupId) && (
+          isTournamentOwner(tournamentId) || isAdmin()
+        );
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(tournamentId) && isValidId(backupId) &&
+          (isTournamentOwner(tournamentId) || isAdmin()) &&
+          isValidCloudBackupSnapshot(incoming()) &&
+          incoming().id == backupId &&
+          incoming().ownerId == get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(tournamentId) && isValidId(backupId) &&
+          (isTournamentOwner(tournamentId) || isAdmin());
+      }
+    }
+  }
+}

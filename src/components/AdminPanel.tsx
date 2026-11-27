@@ -45,8 +45,24 @@ import {
   Clock,
   FileCheck,
   Cpu,
-  Zap
+  Zap,
+  Palette,
+  Sparkles,
+  Monitor,
+  RotateCcw,
+  Scissors,
+  Image as ImageIcon,
+  Cloud,
+  CloudOff,
+  UploadCloud,
+  LogIn,
+  History
 } from 'lucide-react';
+import type { User as FirebaseUser } from 'firebase/auth';
+import type { CloudBackupItem } from '../services/firebaseService';
+import GoogleDriveStoragePanel, { GoogleDriveStorageProps } from './GoogleDriveStoragePanel';
+import { PenaltyPhotoUploaderModal } from './PenaltyPhotoUploaderModal';
+import { playBeep } from '../utils/sound';
 import {
   MasterTournamentInfo,
   MasterReferee,
@@ -55,16 +71,58 @@ import {
   AdminUser,
   GelanggangInfo,
   StorageStatus,
-  StorageFileInfo
+  StorageFileInfo,
+  PenaltyIconConfig,
+  PenaltyIconType,
+  MatchState,
+  TGRState,
+  MatchHistory
 } from '../types';
-import PWAInstallButton from './PWAInstallButton';
+import {
+  DEFAULT_PENALTY_ICONS,
+  PERSILAT_PENALTY_ICONS,
+  NEW_REFERENCE_PENALTY_ICONS,
+  ACTION_PENALTY_ICONS,
+  STANDARDIZED_IMAGEN_PRESET,
+  STANDARDIZED_DQ_PRESET,
+  STANDARDIZED_PENALTY_ASSETS,
+  ICON_CATALOG,
+  renderPenaltyIcon
+} from './PenaltyIconSet';
+import { optimizePenaltyPng } from '../utils/imageCompressor';
 
-interface AdminPanelProps {
+interface AdminPanelProps extends GoogleDriveStorageProps {
   onBackToPortal: () => void;
   masterData: MasterDataState | null;
   arenasList?: GelanggangInfo[];
   currentArenaId?: string;
   onSelectArena?: (id: string) => void;
+  state?: MatchState;
+  tgrState?: TGRState;
+  histories?: MatchHistory[];
+  dispatch?: (type: string, payload?: any) => void;
+  allArenasMap?: Record<string, { state: MatchState; tgrState: TGRState; histories: MatchHistory[]; info: any }>;
+  allArenasSummary?: any[];
+  googleUser?: FirebaseUser | null;
+  googleSyncEnabled?: boolean;
+  onToggleGoogleSync?: (enabled: boolean) => void;
+  googleSyncStatus?: 'disconnected' | 'connecting' | 'synced' | 'error';
+  googleError?: string | null;
+  cloudTournamentId?: string | null;
+  cloudBackups?: CloudBackupItem[];
+  lastCloudSyncAt?: string | null;
+  onSignInGoogle?: () => Promise<any>;
+  onSignOutGoogle?: () => Promise<void>;
+  onPushAllToGoogleCloud?: () => Promise<void>;
+  onCreateGoogleBackup?: (label?: string) => Promise<CloudBackupItem | undefined>;
+  onRestoreGoogleBackup?: (backup: CloudBackupItem) => Promise<void>;
+  onDeleteGoogleBackup?: (backupId: string) => Promise<void>;
+  firebaseProjectInfo?: {
+    projectId: string;
+    databaseId: string;
+    authDomain: string;
+    hasFirestoreDatabase?: boolean;
+  };
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -76,7 +134,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     { id: 'arena_3', nama: 'Gelanggang 3', kode: '3', keterangan: 'Matras 3 - Arena Seni C', modeAktif: 'seni', status: 'aktif' }
   ],
   currentArenaId = 'arena_1',
-  onSelectArena
+  onSelectArena,
+  state,
+  tgrState,
+  histories,
+  dispatch,
+  allArenasMap,
+  allArenasSummary,
+  googleUser = null,
+  googleSyncEnabled = true,
+  onToggleGoogleSync,
+  googleSyncStatus = 'disconnected',
+  googleError = null,
+  cloudTournamentId = null,
+  cloudBackups = [],
+  lastCloudSyncAt = null,
+  onSignInGoogle,
+  onSignOutGoogle,
+  onPushAllToGoogleCloud,
+  onCreateGoogleBackup,
+  onRestoreGoogleBackup,
+  onDeleteGoogleBackup,
+  firebaseProjectInfo,
+  driveConnected = false,
+  driveFolder = null,
+  driveFiles = [],
+  driveMainFile = null,
+  driveSchedulePdfFile = null,
+  driveFinalReportPdfFile = null,
+  driveStatus = 'idle' as NonNullable<GoogleDriveStorageProps['driveStatus']>,
+  driveError = null,
+  lastDriveSyncAt = null,
+  onConnectGoogleDrive,
+  onRefreshDriveFiles,
+  onSaveNewDriveSnapshot,
+  onCreateMainDriveFile,
+  onOverwriteMainDriveFile,
+  onSaveSchedulePdfToDrive,
+  onSaveFinalReportPdfToDrive,
+  onRestoreFromDriveFile,
+  onDownloadDriveFile,
+  onDeleteDriveFile
 }) => {
   // Authentication state
   const [token, setToken] = useState<string | null>(() => {
@@ -92,14 +190,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
 
-  // Active Admin Tabs: 'tournament' | 'referees' | 'assignments' | 'storage' | 'security'
-  const [activeTab, setActiveTab] = useState<'tournament' | 'referees' | 'assignments' | 'storage' | 'security'>('tournament');
+  // Active Admin Tabs: 'tournament' | 'referees' | 'assignments' | 'penalty_icons' | 'storage' | 'security' | 'reset_total'
+  const [activeTab, setActiveTab] = useState<'tournament' | 'referees' | 'assignments' | 'penalty_icons' | 'storage' | 'security' | 'reset_total'>('tournament');
 
   // Local Server Storage State
   const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   const [isLoadingStorage, setIsLoadingStorage] = useState<boolean>(false);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
   const [isCreatingBackup, setIsCreatingBackup] = useState<boolean>(false);
+
+  // Google Cloud Firestore Storage UI State
+  const [isGoogleActionBusy, setIsGoogleActionBusy] = useState<boolean>(false);
+  const [cloudBackupLabel, setCloudBackupLabel] = useState<string>('');
 
   // Node.js Auto-Build State
   const [buildStatus, setBuildStatus] = useState<{
@@ -129,6 +231,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [localReferees, setLocalReferees] = useState<MasterReferee[]>([]);
   const [localAssignments, setLocalAssignments] = useState<Record<string, ArenaAssignment>>({});
   const [localLogs, setLocalLogs] = useState<any[]>([]);
+
+  // Penalty Icons configuration for Monitor Screen
+  const [localPenaltyIcons, setLocalPenaltyIcons] = useState<PenaltyIconConfig>(() => {
+    if (liveMasterData?.penaltyIcons) return liveMasterData.penaltyIcons;
+    try {
+      const saved = localStorage.getItem('silat_penalty_icons_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return DEFAULT_PENALTY_ICONS;
+  });
+  const [isSavingPenaltyIcons, setIsSavingPenaltyIcons] = useState<boolean>(false);
+  const [editingPenaltySlot, setEditingPenaltySlot] = useState<keyof PenaltyIconConfig | null>(null);
+
+  // Fetch penalty icons from server
+  const fetchPenaltyIcons = async () => {
+    try {
+      const res = await fetch('/api/admin/penalty-icons');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.penaltyIcons) {
+          setLocalPenaltyIcons(data.penaltyIcons);
+          try {
+            localStorage.setItem('silat_penalty_icons_config', JSON.stringify(data.penaltyIcons));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal memuat icon hukuman dari server:', err);
+    }
+  };
 
   // Notification Toast / Alert
   const [alertNotice, setAlertNotice] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -185,6 +317,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               setLocalReferees(data.masterData.referees || []);
               setLocalAssignments(data.masterData.assignments || {});
               setLocalLogs(data.masterData.auditLogs || []);
+              if (data.masterData.penaltyIcons) {
+                setLocalPenaltyIcons(data.masterData.penaltyIcons);
+              }
             }
           }
         } else {
@@ -215,6 +350,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (liveMasterData.referees) setLocalReferees(liveMasterData.referees);
       if (liveMasterData.assignments) setLocalAssignments(liveMasterData.assignments);
       if (liveMasterData.auditLogs) setLocalLogs(liveMasterData.auditLogs);
+      if (liveMasterData.penaltyIcons) setLocalPenaltyIcons(liveMasterData.penaltyIcons);
     }
   }, [liveMasterData]);
 
@@ -362,6 +498,80 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     reader.readAsText(file);
   };
 
+  // Google Cloud Firestore Storage Handlers
+  const handleAdminGoogleSignIn = async () => {
+    if (!onSignInGoogle) return;
+    try {
+      setIsGoogleActionBusy(true);
+      await onSignInGoogle();
+      showAlert('success', 'Berhasil masuk ke akun Google! Penyimpanan Cloud Firestore aktif.');
+    } catch (err: any) {
+      showAlert('error', err?.message || 'Gagal masuk dengan akun Google.');
+    } finally {
+      setIsGoogleActionBusy(false);
+    }
+  };
+
+  const handleAdminGoogleSyncNow = async () => {
+    if (!onPushAllToGoogleCloud) return;
+    try {
+      setIsGoogleActionBusy(true);
+      await onPushAllToGoogleCloud();
+      showAlert('success', 'Seluruh data turnamen, wasit, gelanggang, bagan & riwayat berhasil disimpan ke Google Cloud Firestore!');
+    } catch (err: any) {
+      showAlert('error', err?.message || 'Gagal menyimpan data ke Google Firestore.');
+    } finally {
+      setIsGoogleActionBusy(false);
+    }
+  };
+
+  const handleAdminCreateGoogleBackup = async () => {
+    if (!onCreateGoogleBackup) return;
+    try {
+      setIsGoogleActionBusy(true);
+      const label = cloudBackupLabel.trim() || undefined;
+      await onCreateGoogleBackup(label);
+      setCloudBackupLabel('');
+      showAlert('success', 'Snapshot cadangan berhasil disimpan permanen ke Google Cloud Firestore!');
+    } catch (err: any) {
+      showAlert('error', err?.message || 'Gagal membuat snapshot Google Cloud.');
+    } finally {
+      setIsGoogleActionBusy(false);
+    }
+  };
+
+  const handleAdminRestoreGoogleBackup = async (backup: CloudBackupItem) => {
+    if (!onRestoreGoogleBackup) return;
+    if (!window.confirm(`Pulihkan seluruh data turnamen dari snapshot Google "${backup.label}"? Data saat ini akan diganti dengan isi snapshot.`)) {
+      return;
+    }
+    try {
+      setIsGoogleActionBusy(true);
+      await onRestoreGoogleBackup(backup);
+      showAlert('success', `Snapshot "${backup.label}" berhasil dipulihkan dari Google Cloud Firestore!`);
+    } catch (err: any) {
+      showAlert('error', err?.message || 'Gagal memulihkan snapshot dari Google Cloud.');
+    } finally {
+      setIsGoogleActionBusy(false);
+    }
+  };
+
+  const handleAdminDeleteGoogleBackup = async (backup: CloudBackupItem) => {
+    if (!onDeleteGoogleBackup) return;
+    if (!window.confirm(`Hapus snapshot "${backup.label}" dari Google Cloud Firestore?`)) {
+      return;
+    }
+    try {
+      setIsGoogleActionBusy(true);
+      await onDeleteGoogleBackup(backup.id);
+      showAlert('info', `Snapshot "${backup.label}" telah dihapus dari Google Cloud.`);
+    } catch (err: any) {
+      showAlert('error', err?.message || 'Gagal menghapus snapshot Google Cloud.');
+    } finally {
+      setIsGoogleActionBusy(false);
+    }
+  };
+
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,6 +596,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           setLocalReferees(data.masterData.referees || []);
           setLocalAssignments(data.masterData.assignments || {});
           setLocalLogs(data.masterData.auditLogs || []);
+          if (data.masterData.penaltyIcons) {
+            setLocalPenaltyIcons(data.masterData.penaltyIcons);
+          }
         }
         showAlert('success', `Selamat datang kembali, ${data.user.displayName}!`);
       } else {
@@ -617,22 +830,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // -------------------------------------------------------------
-  // Arena Assignment Operations
+  // Arena Assignment Operations & Seni Judge Configuration
   // -------------------------------------------------------------
+  const [applyJudgeCountToAllArenas, setApplyJudgeCountToAllArenas] = useState<boolean>(false);
+
   const activeAssignment: ArenaAssignment = useMemo(() => {
-    return localAssignments[selectedArenaForAssign] || {
+    const existing = localAssignments[selectedArenaForAssign];
+    if (existing) {
+      return {
+        ...existing,
+        seniJumlahJuri: existing.seniJumlahJuri || 5,
+        seniJuriIds: existing.seniJuriIds || {}
+      };
+    }
+    return {
       arenaId: selectedArenaForAssign,
       namaGelanggang: arenasList.find(a => a.id === selectedArenaForAssign)?.nama || `Gelanggang ${selectedArenaForAssign}`,
       shift: 'Sesi 1 (Pagi - Siang)',
-      status: 'bertugas'
+      status: 'bertugas',
+      seniJumlahJuri: 5,
+      seniJuriIds: {}
     };
   }, [localAssignments, selectedArenaForAssign, arenasList]);
+
+  const handleSetSeniJumlahJuri = async (count: number, applyToAll = false) => {
+    const validatedCount = Math.min(10, Math.max(1, count));
+    playBeep('click');
+
+    setLocalAssignments(prev => {
+      const next = { ...prev };
+      if (applyToAll) {
+        arenasList.forEach(a => {
+          next[a.id] = {
+            ...(next[a.id] || { arenaId: a.id, namaGelanggang: a.nama }),
+            seniJumlahJuri: validatedCount
+          };
+        });
+      } else {
+        next[selectedArenaForAssign] = {
+          ...activeAssignment,
+          seniJumlahJuri: validatedCount
+        };
+      }
+      return next;
+    });
+
+    if (dispatch) {
+      dispatch('TGR_SET_JUMLAH_JURI', {
+        jumlahJuri: validatedCount,
+        applyToAllArenas: applyToAll
+      });
+    }
+
+    try {
+      await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TGR_SET_JUMLAH_JURI',
+          arenaId: selectedArenaForAssign,
+          payload: {
+            jumlahJuri: validatedCount,
+            applyToAllArenas: applyToAll
+          }
+        })
+      });
+    } catch (e) {}
+
+    playBeep('valid');
+    showAlert(
+      'success',
+      `Jumlah Juri Seni aktif bertugas diatur ke ${validatedCount} Juri ${
+        applyToAll ? '(Diterapkan ke SEMUA Gelanggang)' : `(${activeAssignment.namaGelanggang})`
+      }. Sistem scoring dan slot penugasan otomatis disinkronkan.`
+    );
+  };
 
   const [isSavingAssignment, setIsSavingAssignment] = useState(false);
   const handleSaveAssignment = async () => {
     if (!token) return;
     setIsSavingAssignment(true);
     try {
+      const assignmentToSave = {
+        ...activeAssignment,
+        seniJumlahJuri: activeAssignment.seniJumlahJuri || 5
+      };
+
       const res = await fetch('/api/admin/assignments', {
         method: 'POST',
         headers: {
@@ -641,13 +924,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         },
         body: JSON.stringify({
           arenaId: selectedArenaForAssign,
-          assignment: activeAssignment
+          assignment: assignmentToSave
         })
       });
       const data = await res.json();
       if (data.success) {
         setLocalAssignments(data.assignments);
-        showAlert('success', `Penugasan wasit/juri untuk ${activeAssignment.namaGelanggang} berhasil disimpan dan disinkronkan!`);
+        if (dispatch) {
+          dispatch('TGR_SET_JUMLAH_JURI', {
+            jumlahJuri: assignmentToSave.seniJumlahJuri
+          });
+        }
+        showAlert('success', `Penugasan wasit/juri untuk ${activeAssignment.namaGelanggang} berhasil disimpan dan disinkronkan (Juri Seni: ${assignmentToSave.seniJumlahJuri} Juri)!`);
       } else {
         showAlert('error', data.error || 'Gagal menyimpan penugasan.');
       }
@@ -695,7 +983,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
-    // Shuffle refs
     const shuffled = [...availableRefs].sort(() => 0.5 - Math.random());
 
     const ketua = shuffled.find(r => r.lisensi === 'Internasional' || r.lisensi === 'Nasional 1') || shuffled[0];
@@ -708,6 +995,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const juri3 = remain[2] || shuffled[2];
     const juriCad = remain[3] || null;
 
+    const seniCount = activeAssignment.seniJumlahJuri || 5;
+    const dynamicSeniJuriIds: Record<string, string | null> = {};
+    for (let i = 1; i <= seniCount; i++) {
+      const assignedRef = remain[(i - 1) % remain.length] || shuffled[(i - 1) % shuffled.length];
+      dynamicSeniJuriIds[`juri${i}`] = assignedRef ? assignedRef.id : null;
+    }
+
     const newAssignment: ArenaAssignment = {
       ...activeAssignment,
       ketuaPertandinganId: ketua.id,
@@ -717,13 +1011,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       juri2Id: juri2.id,
       juri3Id: juri3.id,
       juriCadanganId: juriCad?.id || null,
-      seniJuriIds: {
-        juri1: juri1.id,
-        juri2: juri2.id,
-        juri3: juri3.id,
-        juri4: remain[3]?.id || juri1.id,
-        juri5: remain[4]?.id || juri2.id
-      }
+      seniJumlahJuri: seniCount,
+      seniJuriIds: dynamicSeniJuriIds
     };
 
     setLocalAssignments(prev => ({
@@ -731,7 +1020,96 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       [selectedArenaForAssign]: newAssignment
     }));
 
-    showAlert('success', `Rotasi otomatis wasit berhasil diatur untuk ${activeAssignment.namaGelanggang}. Klik "Terapkan & Simpan" untuk konfirmasi.`);
+    showAlert('success', `Rotasi otomatis wasit & ${seniCount} juri seni berhasil diatur untuk ${activeAssignment.namaGelanggang}. Klik "Terapkan & Simpan" untuk konfirmasi.`);
+  };
+
+  // -------------------------------------------------------------
+  // Reset Data Total Operations
+  // -------------------------------------------------------------
+  const [resetScope, setResetScope] = useState<'all_arenas' | 'single_arena'>('all_arenas');
+  const [resetTargetArenaId, setResetTargetArenaId] = useState<string>(selectedArenaForAssign || currentArenaId || 'arena_1');
+  const [resetType, setResetType] = useState<'all' | 'scores_only' | 'seni_only' | 'tanding_only' | 'history_only' | 'peserta_kontingen'>('all');
+  const [resetNote, setResetNote] = useState<string>('');
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [resetConfirmText, setResetConfirmText] = useState<string>('');
+  const [isConfirmUnderstood, setIsConfirmUnderstood] = useState<boolean>(false);
+  const [isExecutingReset, setIsExecutingReset] = useState<boolean>(false);
+
+  const handleOpenResetModal = () => {
+    playBeep('warning');
+    setResetConfirmText('');
+    setIsConfirmUnderstood(false);
+    setIsResetModalOpen(true);
+  };
+
+  const handleExecuteResetDataTotal = async () => {
+    if (resetConfirmText.trim().toUpperCase() !== 'RESET') {
+      showAlert('error', 'Silakan ketik kata "RESET" dengan huruf kapital untuk konfirmasi.');
+      playBeep('warning');
+      return;
+    }
+    if (!isConfirmUnderstood) {
+      showAlert('error', 'Silakan centang persetujuan verifikasi terlebih dahulu.');
+      playBeep('warning');
+      return;
+    }
+
+    setIsExecutingReset(true);
+    playBeep('warning');
+
+    try {
+      const res = await fetch('/api/admin/reset-total', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          scope: resetScope,
+          targetArenaId: resetScope === 'single_arena' ? resetTargetArenaId : undefined,
+          resetType,
+          note: resetNote.trim() || undefined
+        })
+      });
+
+      const data = await res.json();
+
+      if (dispatch) {
+        dispatch('RESET_DATA_TOTAL', {
+          scope: resetScope,
+          targetArenaId: resetScope === 'single_arena' ? resetTargetArenaId : undefined,
+          resetType
+        });
+      }
+
+      if (data.success) {
+        if (resetType === 'peserta_kontingen' || resetType === 'all') {
+          try {
+            localStorage.removeItem('silat_registered_athletes');
+            localStorage.removeItem('silat_bagan_categories');
+            localStorage.removeItem('silat_bagan_data');
+            localStorage.removeItem('silat_tgr_registered_athletes');
+          } catch (e) {
+            console.warn('Storage clear warning:', e);
+          }
+        }
+        playBeep('valid');
+        showAlert('success', data.message || 'Reset data total berhasil dieksekusi!');
+        setIsResetModalOpen(false);
+        setResetConfirmText('');
+        setIsConfirmUnderstood(false);
+        setResetNote('');
+        fetchStorageStatus();
+      } else {
+        showAlert('error', data.error || 'Gagal mengeksekusi reset data total.');
+        playBeep('alert');
+      }
+    } catch (err: any) {
+      showAlert('error', 'Gagal menghubungi server: ' + err.message);
+      playBeep('alert');
+    } finally {
+      setIsExecutingReset(false);
+    }
   };
 
   // -------------------------------------------------------------
@@ -807,6 +1185,138 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const found = localReferees.find(r => r.id === id);
     if (!found) return id;
     return `${found.nama} (${found.lisensi} - ${found.pengprov})`;
+  };
+
+  // -------------------------------------------------------------
+  // Penalty Icons Management Handlers (Layar Monitor Tanding)
+  // -------------------------------------------------------------
+  const handleSavePenaltyIcons = async () => {
+    if (!token) return;
+    setIsSavingPenaltyIcons(true);
+    try {
+      const res = await fetch('/api/admin/penalty-icons', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ penaltyIcons: localPenaltyIcons })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Persist locally and broadcast across tabs & windows
+        try {
+          localStorage.setItem('silat_penalty_icons_config', JSON.stringify(localPenaltyIcons));
+          window.dispatchEvent(new CustomEvent('silat_penalty_icons_updated', { detail: localPenaltyIcons }));
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('silat_penalty_icons');
+            bc.postMessage(localPenaltyIcons);
+            bc.close();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        showAlert('success', 'Konfigurasi icon hukuman monitor tanding berhasil disimpan dan disinkronkan ke seluruh gelanggang!');
+      } else {
+        showAlert('error', data.error || 'Gagal menyimpan konfigurasi icon hukuman.');
+      }
+    } catch (err: any) {
+      showAlert('error', 'Koneksi error: ' + (err.message || 'Gagal menghubungi server'));
+    } finally {
+      setIsSavingPenaltyIcons(false);
+    }
+  };
+
+  const handleResetPenaltyIcons = () => {
+    setLocalPenaltyIcons(DEFAULT_PENALTY_ICONS);
+    showAlert('info', 'Icon dikembalikan ke bawaan referensi. Klik "Simpan & Terapkan Perubahan" untuk konfirmasi.');
+  };
+
+  const handleSelectPenaltyPreset = (preset: PenaltyIconConfig) => {
+    setLocalPenaltyIcons(preset);
+    showAlert('info', 'Preset icon dipilih. Klik "Simpan & Terapkan Perubahan" untuk menyinkronkan.');
+  };
+
+  const handleSelectPenaltySlotIcon = (slot: keyof PenaltyIconConfig, iconType: PenaltyIconType) => {
+    setLocalPenaltyIcons(prev => ({ ...prev, [slot]: iconType }));
+    setEditingPenaltySlot(null);
+  };
+
+  const getPenaltySlotMeta = (slot: keyof PenaltyIconConfig) => {
+    switch (slot) {
+      case 'slot1':
+        return { name: 'Binaan 1', desc: 'Peringatan Lisan Pertama', rule: 'Tanpa pengurangan nilai', color: 'text-amber-400 border-amber-500/40 bg-amber-500/10' };
+      case 'slot2':
+        return { name: 'Binaan 2', desc: 'Peringatan Lisan Kedua', rule: 'Tanpa pengurangan nilai', color: 'text-amber-400 border-amber-500/40 bg-amber-500/10' };
+      case 'slot3':
+        return { name: 'Teguran 1', desc: 'Teguran Resmi Pertama', rule: 'Pengurangan -1 Poin', color: 'text-orange-400 border-orange-500/40 bg-orange-500/10' };
+      case 'slot4':
+        return { name: 'Teguran 2', desc: 'Teguran Resmi Kedua', rule: 'Pengurangan -2 Poin', color: 'text-orange-400 border-orange-500/40 bg-orange-500/10' };
+      case 'slot5':
+        return { name: 'Peringatan 1', desc: 'Peringatan Keras Pertama', rule: 'Pengurangan -5 Poin', color: 'text-red-400 border-red-500/40 bg-red-500/10' };
+      case 'slot6':
+        return { name: 'Peringatan 2', desc: 'Peringatan Keras Kedua', rule: 'Pengurangan -10 Poin', color: 'text-red-400 border-red-500/40 bg-red-500/10' };
+    }
+  };
+
+  // Upload & Process Custom PNG Icon for Penalty Slots (with background removal)
+  const [isProcessingPng, setIsProcessingPng] = useState(false);
+  const [isPhotoUploaderOpen, setIsPhotoUploaderOpen] = useState(false);
+  const [photoUploaderTargetSlot, setPhotoUploaderTargetSlot] = useState<keyof PenaltyIconConfig>('slot1');
+
+  const handleOpenPhotoUploader = (slot: keyof PenaltyIconConfig) => {
+    setPhotoUploaderTargetSlot(slot);
+    setIsPhotoUploaderOpen(true);
+  };
+
+  const handleApplyUploadedPhoto = (slot: keyof PenaltyIconConfig, transparentDataUrl: string) => {
+    setLocalPenaltyIcons(prev => ({
+      ...prev,
+      [slot]: transparentDataUrl,
+      customImages: {
+        ...(prev.customImages || {}),
+        [slot]: transparentDataUrl
+      }
+    }));
+    setEditingPenaltySlot(null);
+    showAlert('success', `Foto tanpa background berhasil diterapkan untuk ${getPenaltySlotMeta(slot).name}! Silakan klik "Simpan & Terapkan Perubahan".`);
+  };
+
+  const handleUploadSlotPng = async (slot: keyof PenaltyIconConfig, file: File) => {
+    if (!file) return;
+    setIsProcessingPng(true);
+    try {
+      // Automatically clean white/light background on direct upload
+      const optimizedDataUrl = await optimizePenaltyPng(file, 220, { mode: 'auto-light', tolerance: 35 });
+      setLocalPenaltyIcons(prev => ({
+        ...prev,
+        [slot]: optimizedDataUrl,
+        customImages: {
+          ...(prev.customImages || {}),
+          [slot]: optimizedDataUrl
+        }
+      }));
+      setEditingPenaltySlot(null);
+      showAlert('success', `Foto tanpa background berhasil diunggah untuk ${getPenaltySlotMeta(slot).name}! Jangan lupa klik tombol "Simpan & Terapkan Perubahan".`);
+    } catch (err: any) {
+      showAlert('error', err.message || 'Gagal memproses gambar.');
+    } finally {
+      setIsProcessingPng(false);
+    }
+  };
+
+  const handleRemoveSlotPng = (slot: keyof PenaltyIconConfig) => {
+    const defaultIcon = DEFAULT_PENALTY_ICONS[slot];
+    setLocalPenaltyIcons(prev => {
+      const updatedCustom = { ...(prev.customImages || {}) };
+      delete updatedCustom[slot];
+      return {
+        ...prev,
+        [slot]: defaultIcon,
+        customImages: updatedCustom
+      };
+    });
+    showAlert('info', `Gambar PNG untuk ${getPenaltySlotMeta(slot).name} dihapus dan kembali ke icon standar.`);
   };
 
   // =========================================================================
@@ -1018,19 +1528,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Live Server Storage Status Indicator Badge */}
+            {/* Live Cloud / Local Storage Status Indicator Badge */}
             <button
               onClick={() => {
                 setActiveTab('storage');
                 fetchStorageStatus();
               }}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-emerald-300 text-xs hover:border-emerald-400 hover:bg-emerald-950/40 transition-all cursor-pointer shadow-sm"
-              title="Klik untuk membuka tab Penyimpanan Server Lokal"
+              className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border text-xs transition-all cursor-pointer shadow-sm ${
+                googleUser && googleSyncEnabled && googleSyncStatus === 'synced'
+                  ? 'border-blue-500/50 text-blue-300 hover:border-blue-400 hover:bg-blue-950/40'
+                  : 'border-emerald-500/40 text-emerald-300 hover:border-emerald-400 hover:bg-emerald-950/40'
+              }`}
+              title="Klik untuk membuka tab Penyimpanan Google Cloud & Lokal"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold text-[11px] font-mono">SERVER LOKAL:</span>
-              <span className="text-[11px] font-medium text-emerald-200">
-                {storageStatus?.status === 'saving' ? 'Menyimpan...' : 'Tersimpan (Aktif)'}
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${
+                  googleUser && googleSyncEnabled && googleSyncStatus === 'synced' ? 'bg-blue-400' : 'bg-emerald-400'
+                }`}
+              />
+              <span className="font-bold text-[11px] font-mono">
+                {googleUser && googleSyncEnabled ? 'GOOGLE CLOUD:' : 'PENYIMPANAN:'}
+              </span>
+              <span className="text-[11px] font-medium">
+                {googleUser && googleSyncEnabled
+                  ? googleSyncStatus === 'synced'
+                    ? 'Tersimpan'
+                    : googleSyncStatus === 'connecting'
+                    ? 'Menyinkronkan...'
+                    : 'Error'
+                  : storageStatus?.status === 'saving'
+                  ? 'Menyimpan...'
+                  : 'Lokal Aktif'}
               </span>
             </button>
 
@@ -1041,8 +1569,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 Sesi Terautentikasi ({currentUser.role})
               </span>
             </div>
-
-            <PWAInstallButton variant="badge" />
 
             <button
               id="admin-logout-btn"
@@ -1100,6 +1626,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </button>
 
           <button
+            id="tab-btn-penalty-icons"
+            onClick={() => {
+              setActiveTab('penalty_icons');
+              fetchPenaltyIcons();
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'penalty_icons'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Palette className="w-4 h-4" />
+            Icon Hukuman Monitor
+          </button>
+
+          <button
             id="tab-btn-storage"
             onClick={() => {
               setActiveTab('storage');
@@ -1111,9 +1653,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
             }`}
           >
-            <Database className="w-4 h-4" />
-            Penyimpanan Server Lokal
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <Cloud className="w-4 h-4" />
+            Penyimpanan Google & Lokal
+            <span
+              className={`w-2 h-2 rounded-full animate-pulse ${
+                googleUser && googleSyncStatus === 'synced' ? 'bg-blue-400' : 'bg-emerald-400'
+              }`}
+            />
           </button>
 
           <button
@@ -1127,6 +1673,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <Shield className="w-4 h-4" />
             Keamanan & Audit Log
+          </button>
+
+          <button
+            id="tab-btn-reset-total"
+            onClick={() => {
+              playBeep('click');
+              setActiveTab('reset_total');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'reset_total'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-1 ring-rose-400'
+                : 'text-rose-400 hover:text-white hover:bg-rose-950/50 border border-rose-900/40'
+            }`}
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reset Data Total
+            <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-500 text-slate-950">
+              RESET
+            </span>
           </button>
         </div>
       </header>
@@ -1175,6 +1740,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Piala Presiden
                 </button>
               </div>
+            </div>
+
+            {/* Quick Access Card: Pengaturan Icon Hukuman Layar Monitor */}
+            <div className="bg-gradient-to-r from-blue-950/40 via-slate-900 to-amber-950/30 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-black/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                  <Palette className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    Icon Hukuman Layar Monitor Tanding
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      DAPAT DIUBAH
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Kustomisasi 6 gestur icon hukuman (Binaan, Teguran, Peringatan) pada layar monitor pertandingan penonton/official gelanggang.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('penalty_icons');
+                  fetchPenaltyIcons();
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 shrink-0 cursor-pointer self-start sm:self-auto"
+              >
+                <Palette className="w-4 h-4" />
+                <span>Buka Konfigurasi Icon</span>
+              </button>
             </div>
 
             {/* Tournament Details Form */}
@@ -2058,41 +2653,158 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 {/* SENI OFFICIALS */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
-                  <h3 className="text-sm font-bold text-white flex items-center justify-between border-b border-slate-800 pb-3">
-                    <span className="flex items-center gap-2">
-                      <Award className="w-4 h-4 text-purple-400" />
-                      Perangkat Pertandingan Kategori SENI (TGR & Solo Kreatif)
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-950/60 border border-purple-700/60 text-purple-300 rounded-full">
-                      5 s/d 10 Juri Penilai
-                    </span>
-                  </h3>
+                <div className="bg-slate-900/80 border border-purple-900/40 rounded-2xl p-5 space-y-4 shadow-lg shadow-purple-950/20">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Award className="w-4 h-4 text-purple-400" />
+                        Perangkat Pertandingan Kategori SENI (TGR & Solo Kreatif)
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Atur jumlah juri penilai yang bertugas aktif untuk kategori seni pada gelanggang ini.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <span className="text-[11px] font-bold px-3 py-1 bg-purple-950/80 border border-purple-500/50 text-purple-200 rounded-full flex items-center gap-1.5 shadow-sm">
+                        <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                        {activeAssignment.seniJumlahJuri || 5} Juri Bertugas Aktif
+                      </span>
+                    </div>
+                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {[1, 2, 3, 4, 5].map((num) => {
-                      const key = `juri${num}`;
-                      const val = activeAssignment.seniJuriIds?.[key] || '';
-                      return (
-                        <div key={key} className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                          <label className="block text-[10px] font-bold uppercase text-purple-300 mb-1">
-                            Juri Seni {num}
-                          </label>
-                          <select
-                            value={val}
-                            onChange={(e) => handleUpdateSeniJuri(key, e.target.value || null)}
-                            className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-amber-500"
+                  {/* Pengaturan Berapa Juri yang Bertugas Aktif untuk Seni */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-purple-800/40 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <label className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                          Pengaturan Jumlah Juri Seni yang Bertugas Aktif:
+                        </label>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Sistem penilaian otomatis menghitung median (nilai tengah) & deviasi standar dari jumlah juri ini.
+                        </p>
+                      </div>
+
+                      {/* Stepper & Counter */}
+                      <div className="flex items-center gap-2 self-start md:self-auto">
+                        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1">
+                          <button
+                            type="button"
+                            onClick={() => handleSetSeniJumlahJuri(Math.max(1, (activeAssignment.seniJumlahJuri || 5) - 1), applyJudgeCountToAllArenas)}
+                            disabled={(activeAssignment.seniJumlahJuri || 5) <= 1}
+                            className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold text-sm disabled:opacity-40 cursor-pointer"
+                            title="Kurangi 1 Juri"
                           >
-                            <option value="">- Kosong -</option>
-                            {localReferees.map(r => (
-                              <option key={r.id} value={r.id}>
-                                {r.nama} ({r.lisensi})
-                              </option>
-                            ))}
-                          </select>
+                            -
+                          </button>
+                          <span className="w-12 text-center font-black text-sm text-purple-300 font-mono">
+                            {activeAssignment.seniJumlahJuri || 5}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSetSeniJumlahJuri(Math.min(10, (activeAssignment.seniJumlahJuri || 5) + 1), applyJudgeCountToAllArenas)}
+                            disabled={(activeAssignment.seniJumlahJuri || 5) >= 10}
+                            className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold text-sm disabled:opacity-40 cursor-pointer"
+                            title="Tambah 1 Juri"
+                          >
+                            +
+                          </button>
                         </div>
-                      );
-                    })}
+                        <span className="text-xs font-bold text-slate-400">Juri (1-10)</span>
+                      </div>
+                    </div>
+
+                    {/* Quick Presets Buttons */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                      <span className="text-[11px] font-semibold text-slate-400">Preset Resmi:</span>
+                      {[
+                        { count: 3, label: '3 Juri', badge: 'Cepat/Lokal' },
+                        { count: 5, label: '5 Juri', badge: 'Standar PB IPSI' },
+                        { count: 6, label: '6 Juri', badge: 'Standar 6' },
+                        { count: 8, label: '8 Juri', badge: 'Standar 8' },
+                        { count: 10, label: '10 Juri', badge: 'PERSILAT Internasional' }
+                      ].map(preset => {
+                        const isActive = (activeAssignment.seniJumlahJuri || 5) === preset.count;
+                        return (
+                          <button
+                            key={preset.count}
+                            type="button"
+                            onClick={() => handleSetSeniJumlahJuri(preset.count, applyJudgeCountToAllArenas)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                              isActive
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-1 ring-purple-400'
+                                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
+                            }`}
+                          >
+                            <span>{preset.label}</span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-semibold ${
+                              isActive ? 'bg-purple-950 text-purple-200' : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {preset.badge}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Checkbox: Terapkan ke semua gelanggang */}
+                    <div className="flex items-center justify-between pt-1 text-xs">
+                      <label className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white select-none">
+                        <input
+                          type="checkbox"
+                          checked={applyJudgeCountToAllArenas}
+                          onChange={(e) => setApplyJudgeCountToAllArenas(e.target.checked)}
+                          className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-900 border-slate-700 cursor-pointer"
+                        />
+                        <span className="text-[11px] font-medium">
+                          Terapkan pengaturan jumlah juri ini ke <strong className="text-purple-300">SEMUA Gelanggang</strong> sekaligus
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Slots Penugasan Juri Seni 1..N */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span className="font-semibold">
+                        Slot Penugasan Juri Seni Aktif (Juri 1 s/d Juri {activeAssignment.seniJumlahJuri || 5}):
+                      </span>
+                      <span className="text-[11px] text-purple-300 font-mono">
+                        {Array.from({ length: activeAssignment.seniJumlahJuri || 5 }, (_, i) => `juri${i + 1}`)
+                          .filter(k => !!activeAssignment.seniJuriIds?.[k]).length} dari {activeAssignment.seniJumlahJuri || 5} terisi
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {Array.from({ length: activeAssignment.seniJumlahJuri || 5 }, (_, i) => i + 1).map((num) => {
+                        const key = `juri${num}`;
+                        const val = activeAssignment.seniJuriIds?.[key] || '';
+                        return (
+                          <div key={key} className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 hover:border-purple-800/60 transition-colors">
+                            <label className="block text-[10px] font-bold uppercase text-purple-300 mb-1 flex items-center justify-between">
+                              <span>Juri Seni {num}</span>
+                              {val ? (
+                                <span className="w-2 h-2 rounded-full bg-emerald-400" title="Terisi" />
+                              ) : (
+                                <span className="text-[9px] text-amber-400 font-normal">Belum Diisi</span>
+                              )}
+                            </label>
+                            <select
+                              value={val}
+                              onChange={(e) => handleUpdateSeniJuri(key, e.target.value || null)}
+                              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-purple-500 font-medium"
+                            >
+                              <option value="">- Kosongkan Slot -</option>
+                              {localReferees.map(r => (
+                                <option key={r.id} value={r.id}>
+                                  {r.nama} ({r.lisensi})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2140,7 +2852,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                        Juri Sudut Tanding
+                        Juri Sudut Tanding (3 Juri)
                       </span>
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-400">Juri 1:</span>
@@ -2155,6 +2867,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <span className="font-semibold text-slate-200">{getRefName(activeAssignment.juri3Id)}</span>
                       </div>
                     </div>
+
+                    {/* Seni Judges Roster */}
+                    <div className="bg-slate-950/80 p-3 rounded-xl border border-purple-900/60 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold text-purple-400 block">
+                          Juri Seni Aktif ({activeAssignment.seniJumlahJuri || 5} Juri)
+                        </span>
+                        <span className="text-[10px] font-mono text-purple-300">
+                          {(activeAssignment.seniJumlahJuri || 5) <= 5 ? 'PB IPSI' : 'PERSILAT'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 text-[11px] pt-1">
+                        {Array.from({ length: activeAssignment.seniJumlahJuri || 5 }, (_, i) => i + 1).map((num) => {
+                          const key = `juri${num}`;
+                          const refId = activeAssignment.seniJuriIds?.[key];
+                          return (
+                            <div key={key} className="flex items-center justify-between text-slate-300 bg-slate-900/60 px-2 py-1 rounded">
+                              <span className="text-slate-400 text-[10px]">Juri {num}:</span>
+                              <span className="font-semibold truncate max-w-[85px] text-purple-200">
+                                {refId ? getRefName(refId) : '-'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   <button
@@ -2167,6 +2905,689 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* =================================================================== */}
+        {/* TAB: ICON HUKUMAN MONITOR TANDING */}
+        {/* =================================================================== */}
+        {activeTab === 'penalty_icons' && (
+          <div className="space-y-6">
+            {/* 1. Header Banner & Quick Actions */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                      <Palette className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                        Konfigurasi Icon Hukuman Layar Monitor Tanding
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 uppercase tracking-wide flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          Sinkron Otomatis
+                        </span>
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Ubah dan sesuaikan 6 gestur icon hukuman (Binaan 1 & 2, Teguran 1 & 2, Peringatan 1 & 2) yang tampil pada layar monitor pertandingan gelanggang.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPhotoUploader('slot1')}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-emerald-950/40"
+                    title="Upload foto dan hilangkan latar belakang otomatis untuk layar hukuman"
+                  >
+                    <Scissors className="w-3.5 h-3.5" />
+                    <span>Upload Foto Bebas Background</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetPenaltyIcons}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                    title="Kembalikan semua icon ke susunan bawaan referensi gambar"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Bawaan</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSavePenaltyIcons}
+                    disabled={isSavingPenaltyIcons}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    title="Simpan konfigurasi ke basis data server lokal & sinkronkan ke semua monitor"
+                  >
+                    {isSavingPenaltyIcons ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Simpan & Terapkan Perubahan</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Indicator Badges */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800/80 text-xs">
+                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Status Sinkronisasi</span>
+                  <span className="text-xs font-bold text-emerald-300 flex items-center gap-1 mt-0.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Tersambung Real-Time
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Jumlah Slot Gestur</span>
+                  <span className="text-xs font-bold text-amber-300 mt-0.5 block">
+                    6 Slot (2 Binaan, 2 Teguran, 2 Peringatan)
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Pilihan Icon Resmi</span>
+                  <span className="text-xs font-bold text-cyan-300 mt-0.5 block">
+                    14 Gestur & Siluet Silat
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Target Monitor</span>
+                  <span className="text-xs font-bold text-white mt-0.5 block">
+                    Layar Tanding Sudut Biru & Merah
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Preset Cepat (Quick Template Presets) */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    Preset Cepat Susunan Icon Hukuman
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Pilih salah satu template siap pakai atau atur per slot secara mandiri di bawah:
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Preset 1: Standar Visual Imagen (Warning 1, Warning 2, Teguran) */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-emerald-500/50 flex flex-col justify-between hover:border-emerald-400 transition-all group ring-1 ring-emerald-500/20">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-300">
+                        Standar Visual Imagen
+                      </span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">
+                        Resmi
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Icon visual terstandarisasi untuk hukuman Pencak Silat: Teguran 1 (-1), Teguran 2 (-2), Peringatan 1 (-5), Peringatan 2 (-10), dan Diskualifikasi (DQ).
+                    </p>
+                    <div className="flex items-center gap-1.5 py-2 overflow-x-auto text-emerald-400">
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Binaan 1">{renderPenaltyIcon('binaan1', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Binaan 2">{renderPenaltyIcon('binaan2', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Teguran 1">{renderPenaltyIcon(STANDARDIZED_PENALTY_ASSETS.teguran1, 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Teguran 2">{renderPenaltyIcon(STANDARDIZED_PENALTY_ASSETS.teguran2, 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Peringatan 1">{renderPenaltyIcon(STANDARDIZED_PENALTY_ASSETS.warning1, 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800" title="Peringatan 2">{renderPenaltyIcon(STANDARDIZED_PENALTY_ASSETS.warning2, 'w-5 h-5')}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPenaltyPreset(STANDARDIZED_IMAGEN_PRESET)}
+                    className="w-full mt-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-lg transition-colors cursor-pointer shadow-sm"
+                  >
+                    Terapkan Preset Standar
+                  </button>
+                </div>
+
+                {/* Preset 2: Referensi Gambar Baru (Default) */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-amber-500/40 flex flex-col justify-between hover:border-amber-400 transition-all group">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-300">
+                        Referensi Gambar Baru
+                      </span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded border border-amber-500/30">
+                        Default
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Sesuai gambar referensi monitor tanding terbaru: Tinju, Telunjuk, Dua Jari, Telapak Tangan, Tendangan T, dan Tendangan Sabit.
+                    </p>
+                    <div className="flex items-center gap-1.5 py-2 overflow-x-auto text-amber-400">
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('fist', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('pointing', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('peace', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('hand', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('kick_t', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('kick_sabit', 'w-5 h-5')}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPenaltyPreset(NEW_REFERENCE_PENALTY_ICONS)}
+                    className="w-full mt-3 py-2 bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Terapkan Preset Ini
+                  </button>
+                </div>
+
+                {/* Preset 3: Standar Resmi Persilat */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all group">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200">
+                        Standar Resmi Persilat
+                      </span>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 bg-slate-800 text-slate-400 rounded">
+                        Klasik
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Sinyal isyarat tangan wasit konvensional: Binaan 1 & 2 (manset), Teguran 1 & 2 (jari tegak), Peringatan 1 & 2 (telapak tangan).
+                    </p>
+                    <div className="flex items-center gap-1.5 py-2 overflow-x-auto text-slate-300">
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('binaan1', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('binaan2', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('teguran1', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('teguran2', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('peringatan1', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('peringatan2', 'w-5 h-5')}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPenaltyPreset(PERSILAT_PENALTY_ICONS)}
+                    className="w-full mt-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Terapkan Preset Ini
+                  </button>
+                </div>
+
+                {/* Preset 4: Siluet Aksi Silat */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all group">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200">
+                        Siluet Aksi Silat
+                      </span>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 bg-slate-800 text-slate-400 rounded">
+                        Dinamis
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Gerakan aktif pesilat di atas matras: Tinju, Pukulan Lurus, Pasang Kuda-kuda, Dua Jari, Tendangan T, dan Tendangan Sabit.
+                    </p>
+                    <div className="flex items-center gap-1.5 py-2 overflow-x-auto text-slate-300">
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('fist', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('punch_pose', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('stance', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('peace', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('kick_t', 'w-5 h-5')}</div>
+                      <div className="p-1 rounded bg-slate-900 border border-slate-800">{renderPenaltyIcon('kick_sabit', 'w-5 h-5')}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPenaltyPreset(ACTION_PENALTY_ICONS)}
+                    className="w-full mt-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Terapkan Preset Ini
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Live Monitor Simulation Preview */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-cyan-400" />
+                    Simulasi Tampilan Layar Monitor (Live Preview)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Berikut simulasi bagaimana 6 icon hukuman akan terlihat pada layar monitor tanding penonton & official gelanggang:
+                  </p>
+                </div>
+                <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/60 px-3 py-1 rounded-lg border border-cyan-800/60 self-start sm:self-auto">
+                  Pratinjau Sudut Biru & Merah
+                </span>
+              </div>
+
+              {/* Simulation Grid Box */}
+              <div className="bg-slate-950 p-4 sm:p-6 rounded-2xl border border-slate-800/80 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* SUDUT BIRU MONITOR SIMULATION */}
+                <div className="bg-slate-900/90 rounded-2xl border-2 border-blue-600/60 p-4 shadow-xl shadow-blue-950/30 space-y-3">
+                  <div className="flex items-center justify-between border-b border-blue-900/60 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-blue-500 shadow-sm shadow-blue-400" />
+                      <span className="text-xs font-black uppercase tracking-wider text-blue-400">
+                        SUDUT BIRU
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      PESILAT BIRU (DKI JAKARTA)
+                    </span>
+                  </div>
+
+                  {/* 2x3 Grid Display for Blue Corner */}
+                  <div className="flex items-stretch gap-3">
+                    {/* Score preview box */}
+                    <div className="w-20 bg-blue-600 text-white rounded-xl flex flex-col items-center justify-center p-2 shadow-inner">
+                      <span className="text-[9px] uppercase font-bold text-blue-100">SKOR</span>
+                      <span className="text-2xl font-black font-mono">18</span>
+                    </div>
+
+                    {/* 2x3 Penalty Grid */}
+                    <div className="flex-1 grid grid-cols-2 gap-2 bg-slate-950/80 p-2.5 rounded-xl border border-blue-900/40">
+                      {/* Row 1: Binaan 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Binaan 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot1, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-slate-400 font-mono">0 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Binaan 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot2, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-slate-400 font-mono">0 Poin</span>
+                      </div>
+
+                      {/* Row 2: Teguran 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-orange-400 uppercase">Teguran 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot3, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-orange-300/80 font-mono">-1 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-orange-400 uppercase">Teguran 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot4, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-orange-300/80 font-mono">-2 Poin</span>
+                      </div>
+
+                      {/* Row 3: Peringatan 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-red-400 uppercase">Peringatan 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot5, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-red-300/80 font-mono">-5 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-blue-400">
+                        <span className="text-[9px] font-bold text-red-400 uppercase">Peringatan 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot6, "w-8 h-8")}</div>
+                        <span className="text-[8px] text-red-300/80 font-mono">-10 Poin</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SUDUT MERAH MONITOR SIMULATION */}
+                <div className="bg-slate-900/90 rounded-2xl border-2 border-red-600/60 p-4 shadow-xl shadow-red-950/30 space-y-3">
+                  <div className="flex items-center justify-between border-b border-red-900/60 pb-2">
+                    <span className="text-[10px] font-mono text-slate-400">
+                      PESILAT MERAH (JAWA BARAT)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-red-400">
+                        SUDUT MERAH
+                      </span>
+                      <span className="w-3 h-3 rounded-full bg-red-500 shadow-sm shadow-red-400" />
+                    </div>
+                  </div>
+
+                  {/* 2x3 Grid Display for Red Corner */}
+                  <div className="flex items-stretch gap-3">
+                    {/* 2x3 Penalty Grid */}
+                    <div className="flex-1 grid grid-cols-2 gap-2 bg-slate-950/80 p-2.5 rounded-xl border border-red-900/40">
+                      {/* Row 1: Binaan 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Binaan 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot1, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-slate-400 font-mono">0 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Binaan 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot2, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-slate-400 font-mono">0 Poin</span>
+                      </div>
+
+                      {/* Row 2: Teguran 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-orange-400 uppercase">Teguran 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot3, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-orange-300/80 font-mono">-1 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-orange-400 uppercase">Teguran 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot4, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-orange-300/80 font-mono">-2 Poin</span>
+                      </div>
+
+                      {/* Row 3: Peringatan 1 & 2 */}
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-red-400 uppercase">Peringatan 1</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot5, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-red-300/80 font-mono">-5 Poin</span>
+                      </div>
+                      <div className="bg-slate-900/80 rounded-lg p-2 flex flex-col items-center justify-center border border-slate-800 text-red-400">
+                        <span className="text-[9px] font-bold text-red-400 uppercase">Peringatan 2</span>
+                        <div className="my-1">{renderPenaltyIcon(localPenaltyIcons.slot6, "w-8 h-8", true)}</div>
+                        <span className="text-[8px] text-red-300/80 font-mono">-10 Poin</span>
+                      </div>
+                    </div>
+
+                    {/* Score preview box */}
+                    <div className="w-20 bg-red-600 text-white rounded-xl flex flex-col items-center justify-center p-2 shadow-inner">
+                      <span className="text-[9px] uppercase font-bold text-red-100">SKOR</span>
+                      <span className="text-2xl font-black font-mono">24</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Slot Configuration Cards (6 Interactive Slots) */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Kustomisasi 6 Slot Icon Hukuman
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Klik tombol "Ganti Icon" pada setiap slot untuk memilih gestur yang Anda kehendaki:
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {(['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6'] as (keyof PenaltyIconConfig)[]).map((slotKey, idx) => {
+                  const meta = getPenaltySlotMeta(slotKey);
+                  const currentIconType = localPenaltyIcons[slotKey];
+                  const currentCatalogItem = ICON_CATALOG.find(c => c.type === currentIconType);
+                  const isCustomPng = typeof currentIconType === 'string' && (currentIconType.startsWith('data:image/') || currentIconType.startsWith('http') || currentIconType.startsWith('/') || !!localPenaltyIcons.customImages?.[slotKey]);
+
+                  return (
+                    <div
+                      key={slotKey}
+                      className="bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between space-y-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-300 font-mono">
+                            SLOT {idx + 1}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {isCustomPng && (
+                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 uppercase tracking-wide flex items-center gap-1">
+                                <ImageIcon className="w-3 h-3 text-emerald-400" />
+                                PNG Kustom
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.color}`}>
+                              {meta.name}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-xs font-bold text-white">{meta.desc}</h4>
+                          <p className="text-[11px] text-slate-400">{meta.rule}</p>
+                        </div>
+
+                        {/* Large Icon Preview */}
+                        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col items-center justify-center my-2 text-amber-400 min-h-[100px]">
+                          <div className="scale-125 my-1 flex items-center justify-center">
+                            {renderPenaltyIcon(currentIconType, "w-10 h-10", false, localPenaltyIcons.customImages)}
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-300 mt-2 text-center truncate max-w-full">
+                            {isCustomPng ? 'Gambar PNG Kustom (Diunggah)' : (currentCatalogItem?.label || currentIconType)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Upload Foto Tanpa Background Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPhotoUploader(slotKey)}
+                            className="py-2 px-2 bg-gradient-to-r from-emerald-950/90 to-teal-950/90 hover:from-emerald-900 hover:to-teal-900 border border-emerald-600/70 hover:border-emerald-400 text-emerald-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center shadow-xs"
+                            title="Upload foto & hapus background transparan otomatis"
+                          >
+                            <Scissors className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span className="truncate">Foto Bebas BG</span>
+                          </button>
+
+                          {/* Choose from Catalog Button */}
+                          <button
+                            type="button"
+                            onClick={() => setEditingPenaltySlot(slotKey)}
+                            className="py-2 px-2 bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-slate-700 hover:border-amber-400 text-center"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">Katalog Icon</span>
+                          </button>
+                        </div>
+
+                        {/* Reset PNG button if custom PNG is active */}
+                        {isCustomPng && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSlotPng(slotKey)}
+                            className="w-full py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 font-medium text-[11px] rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                            title="Hapus gambar PNG ini dan kembalikan ke icon standar"
+                          >
+                            <RotateCcw className="w-3 h-3 text-red-400" />
+                            <span>Hapus PNG & Kembalikan Bawaan</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 5. Bottom Save Confirmation Bar */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 sticky bottom-4 shadow-2xl backdrop-blur-md">
+              <div className="flex items-center gap-2.5 text-xs text-slate-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Perubahan icon (termasuk berkas PNG) akan disimpan ke database server lokal dan langsung terdistribusi ke seluruh layar monitor pertandingan.
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetPenaltyIcons}
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePenaltyIcons}
+                  disabled={isSavingPenaltyIcons || isProcessingPng}
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingPenaltyIcons ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Simpan & Terapkan Perubahan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* 6. Icon Picker & PNG Upload Modal Dialog */}
+            {editingPenaltySlot !== null && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h3 className="text-base font-bold text-white flex items-center gap-2">
+                        <Palette className="w-5 h-5 text-amber-400" />
+                        Pilih atau Upload Icon untuk {getPenaltySlotMeta(editingPenaltySlot).name}
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        {getPenaltySlotMeta(editingPenaltySlot).desc} • {getPenaltySlotMeta(editingPenaltySlot).rule}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingPenaltySlot(null)}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Section A: Upload File PNG Kustom */}
+                  <div className="p-4 rounded-xl border-2 border-dashed border-emerald-600/50 bg-emerald-950/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
+                          <Upload className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                            Unggah Gambar PNG Kustom Sendiri
+                            <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/30 text-emerald-300 font-extrabold uppercase">
+                              Disarankan
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-slate-400">
+                            Pilih gambar PNG dengan latar transparan. Sistem otomatis mengoptimasi ukuran (<span className="text-emerald-300">~25KB</span>) agar tajam di layar.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPhotoUploader(editingPenaltySlot)}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-950/40 transition-all"
+                      >
+                        <Scissors className="w-4 h-4" />
+                        <span>Upload Foto & Hapus Background (Transparan)</span>
+                      </button>
+
+                      <label className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer border border-slate-700 transition-all">
+                        <ImageIcon className="w-4 h-4 text-emerald-400" />
+                        <span>{isProcessingPng ? 'Memproses...' : 'Upload Berkas Langsung'}</span>
+                        <input
+                          type="file"
+                          accept="image/*,.jpg,.jpeg,.png,.webp,.svg"
+                          className="hidden"
+                          disabled={isProcessingPng}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleUploadSlotPng(editingPenaltySlot, file);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </label>
+
+                      {/* If current slot has a custom PNG, show its preview & clear button */}
+                      {(typeof localPenaltyIcons[editingPenaltySlot] === 'string' && (localPenaltyIcons[editingPenaltySlot].startsWith('data:image/') || !!localPenaltyIcons.customImages?.[editingPenaltySlot])) && (
+                        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded bg-slate-900 border border-slate-800 flex items-center justify-center">
+                              {renderPenaltyIcon(localPenaltyIcons[editingPenaltySlot], "w-6 h-6", false, localPenaltyIcons.customImages)}
+                            </div>
+                            <span className="text-[11px] font-semibold text-emerald-400">PNG Sedang Digunakan</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSlotPng(editingPenaltySlot)}
+                            className="text-xs text-red-400 hover:text-red-300 font-semibold underline cursor-pointer"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section B: Atau Pilih dari Katalog Icon Vektor Silat */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Atau Pilih dari Pilihan Icon Standar Silat:
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {ICON_CATALOG.map((item) => {
+                        const isSelected = localPenaltyIcons[editingPenaltySlot] === item.type;
+
+                        return (
+                          <button
+                            key={item.type}
+                            type="button"
+                            onClick={() => handleSelectPenaltySlotIcon(editingPenaltySlot, item.type)}
+                            className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-amber-500/20 border-amber-500 text-amber-300 ring-2 ring-amber-500/50'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <div className="scale-125 my-1">
+                              {renderPenaltyIcon(item.type, "w-8 h-8")}
+                            </div>
+                            <span className="text-xs font-semibold">{item.label}</span>
+                            {isSelected && (
+                              <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                Terpilih
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setEditingPenaltySlot(null)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl cursor-pointer"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2239,6 +3660,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <RefreshCw className="w-3.5 h-3.5" />
                   Reset Master Data ke Standar IPSI
                 </button>
+
+                <div className="pt-2 border-t border-red-900/40">
+                  <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
+                    Perlu membersihkan skor live tanding/seni atau arsip riwayat tanpa mereset template wasit?
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playBeep('click');
+                      setActiveTab('reset_total');
+                    }}
+                    className="w-full py-2.5 bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-rose-950/40"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Buka Panel Reset Data Total
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2263,9 +3701,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {localLogs.length === 0 ? (
                   <p className="text-xs text-slate-500 py-6 text-center">Belum ada riwayat aktivitas.</p>
                 ) : (
-                  localLogs.map((log) => (
+                  localLogs.map((log, logIdx) => (
                     <div
-                      key={log.id}
+                      key={`${log.id || 'log'}__${logIdx}`}
                       className="bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 text-xs flex items-start justify-between gap-3 hover:border-slate-700 transition-colors"
                     >
                       <div className="space-y-0.5">
@@ -2297,11 +3735,259 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         )}
 
         {/* =================================================================== */}
-        {/* TAB 5: PENYIMPANAN SERVER LOKAL */}
+        {/* TAB 5: PENYIMPANAN GOOGLE CLOUD & SERVER LOKAL */}
         {/* =================================================================== */}
         {activeTab === 'storage' && (
           <div className="space-y-6">
-            {/* 1. Header Overview Card */}
+            {/* 0. GOOGLE CLOUD FIRESTORE STORAGE CARD */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-blue-950/50 border border-blue-500/40 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+                      {googleUser ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5 text-slate-400" />}
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-white flex flex-wrap items-center gap-2">
+                        Penyimpanan Google Cloud (Firebase Firestore)
+                        {googleUser && googleSyncEnabled && googleSyncStatus === 'synced' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/40 uppercase tracking-wide flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                            Tersimpan di Google Cloud
+                          </span>
+                        ) : googleSyncStatus === 'connecting' ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                            Menyambungkan...
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-800 text-slate-300 border border-slate-700 uppercase">
+                            {googleUser ? 'Sinkronisasi Dijeda' : 'Belum Masuk Akun Google'}
+                          </span>
+                        )}
+                      </h2>
+                      <p className="text-xs text-slate-300">
+                        Menyimpan seluruh data turnamen, wasit, atlet/kontingen, bagan, skor gelanggang, dan riwayat partai langsung di database Google Firestore.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {!googleUser ? (
+                    <button
+                      type="button"
+                      onClick={handleAdminGoogleSignIn}
+                      disabled={isGoogleActionBusy}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isGoogleActionBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+                      <span>Masuk dengan Google & Aktifkan Penyimpanan</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleAdminGoogleSyncNow}
+                        disabled={isGoogleActionBusy || !googleSyncEnabled}
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isGoogleActionBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                        <span>Simpan Semua Data ke Google Sekarang</span>
+                      </button>
+                      {onSignOutGoogle && (
+                        <button
+                          type="button"
+                          onClick={onSignOutGoogle}
+                          disabled={isGoogleActionBusy}
+                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-300 hover:text-red-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>Keluar Google</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Google Cloud Metadata Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5 pt-4 border-t border-slate-800/80 font-mono text-xs relative z-10">
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/70">
+                  <span className="text-[11px] text-slate-400 block font-sans">Akun Google Aktif</span>
+                  <span className="text-xs font-bold text-white truncate block mt-1">
+                    {googleUser ? googleUser.email || googleUser.displayName : 'Belum masuk'}
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/70">
+                  <span className="text-[11px] text-slate-400 block font-sans">Database Google Firestore</span>
+                  <span className="text-xs font-bold text-cyan-300 truncate block mt-1" title={firebaseProjectInfo?.databaseId}>
+                    {firebaseProjectInfo?.hasFirestoreDatabase === false
+                      ? 'Tidak Aktif (Mode Google Drive)'
+                      : firebaseProjectInfo?.databaseId || 'ai-studio-firestore'}
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/70">
+                  <span className="text-[11px] text-slate-400 block font-sans">Sinkronisasi Terakhir</span>
+                  <span className="text-xs font-bold text-emerald-300 block mt-1">
+                    {lastCloudSyncAt
+                      ? new Date(lastCloudSyncAt).toLocaleTimeString('id-ID', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        }) + ' WIB'
+                      : googleUser
+                      ? 'Menunggu sinkronisasi...'
+                      : '-'}
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/70 flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] text-slate-400 block font-sans">Auto-Save Google</span>
+                    <span className="text-xs font-bold text-blue-300 block mt-1">
+                      {googleSyncEnabled ? 'Otomatis Aktif' : 'Nonaktif'}
+                    </span>
+                  </div>
+                  {onToggleGoogleSync && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={googleSyncEnabled}
+                      onClick={() => onToggleGoogleSync(!googleSyncEnabled)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                        googleSyncEnabled ? 'bg-blue-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                          googleSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {firebaseProjectInfo?.hasFirestoreDatabase === false && (
+                <div className="mt-4 p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-center gap-2 relative z-10">
+                  <HardDrive className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Proyek OAuth ini aktif menggunakan <strong>Penyimpanan Google Drive</strong> (lihat panel di bawah). Database Firestore tidak dikonfigurasi pada proyek ini.
+                  </span>
+                </div>
+              )}
+
+              {googleError && (
+                <div className="mt-4 p-3 rounded-xl bg-red-950/50 border border-red-700/50 text-xs text-red-200 flex items-center gap-2 relative z-10">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="break-words">{googleError}</span>
+                </div>
+              )}
+
+              {/* Cloud Snapshot Creation & Restore History */}
+              {googleUser && (
+                <div className="mt-5 pt-5 border-t border-slate-800/80 space-y-4 relative z-10">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <History className="w-4 h-4 text-blue-400" />
+                        Snapshot Cadangan di Google Cloud Firestore ({cloudBackups.length})
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Simpan titik pemulihan permanen di server Google dan pulihkan kapan saja di perangkat mana pun.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cloudBackupLabel}
+                        onChange={(e) => setCloudBackupLabel(e.target.value)}
+                        placeholder="Label snapshot (opsional)..."
+                        className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-48 sm:w-56"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAdminCreateGoogleBackup}
+                        disabled={isGoogleActionBusy}
+                        className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Simpan Snapshot Cloud</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {cloudBackups.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {cloudBackups.slice(0, 6).map((bkp) => (
+                        <div
+                          key={bkp.id}
+                          className="p-3.5 rounded-xl bg-slate-950/75 border border-slate-800 flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate">{bkp.label}</div>
+                            <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                              {bkp.totalArenas} Arena • {bkp.totalHistories} Partai •{' '}
+                              {bkp.createdAt ? new Date(bkp.createdAt).toLocaleString('id-ID') : ''}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminRestoreGoogleBackup(bkp)}
+                              disabled={isGoogleActionBusy}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              Pulihkan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminDeleteGoogleBackup(bkp)}
+                              disabled={isGoogleActionBusy}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700 transition-colors cursor-pointer"
+                              title="Hapus snapshot"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/80 text-xs text-slate-400 text-center">
+                      Belum ada snapshot cadangan di Google Cloud. Klik <strong>Simpan Snapshot Cloud</strong> untuk membuat titik pemulihan pertama.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 0.5 GOOGLE DRIVE STORAGE CARD */}
+            <GoogleDriveStoragePanel
+              googleUser={googleUser}
+              driveConnected={driveConnected}
+              driveFolder={driveFolder}
+              driveFiles={driveFiles}
+              driveMainFile={driveMainFile}
+              driveSchedulePdfFile={driveSchedulePdfFile}
+              driveFinalReportPdfFile={driveFinalReportPdfFile}
+              driveStatus={driveStatus}
+              driveError={driveError}
+              lastDriveSyncAt={lastDriveSyncAt}
+              onConnectGoogleDrive={onConnectGoogleDrive}
+              onRefreshDriveFiles={onRefreshDriveFiles}
+              onSaveNewDriveSnapshot={onSaveNewDriveSnapshot}
+              onCreateMainDriveFile={onCreateMainDriveFile}
+              onOverwriteMainDriveFile={onOverwriteMainDriveFile}
+              onSaveSchedulePdfToDrive={onSaveSchedulePdfToDrive}
+              onSaveFinalReportPdfToDrive={onSaveFinalReportPdfToDrive}
+              onRestoreFromDriveFile={onRestoreFromDriveFile}
+              onDownloadDriveFile={onDownloadDriveFile}
+              onDeleteDriveFile={onDeleteDriveFile}
+            />
+
+            {/* 1. Header Overview Card (Local Server Disk Fallback) */}
             <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-emerald-950/40 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
               <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -2645,7 +4331,524 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* =================================================================== */}
+        {/* TAB 7: RESET DATA TOTAL */}
+        {/* =================================================================== */}
+        {activeTab === 'reset_total' && (
+          <div className="space-y-6">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-red-950/80 via-slate-900 to-rose-950/60 border border-red-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0 shadow-lg shadow-rose-950/50">
+                    <RotateCcw className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-bold text-white">
+                        Pusat Reset Data Total Turnamen & Gelanggang
+                      </h2>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-slate-950 uppercase tracking-wider">
+                        ZONA KRITIS
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                      Kelola pembersihan data menyeluruh: Skor live tanding & seni, hit juri, babak pertandingan, deduksi dewan, bagan bracket, dan arsip riwayat pertandingan dengan perlindungan verifikasi ganda.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenResetModal}
+                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 active:scale-95 text-white font-black text-xs shadow-xl shadow-rose-950/50 transition-all flex items-center gap-2 cursor-pointer border border-rose-400/40"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Lanjutkan ke Konfirmasi Reset Total</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status metric overview */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 mt-6 pt-5 border-t border-slate-800/80 text-xs font-mono">
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Total Gelanggang:</span>
+                  <span className="text-sm font-bold text-white mt-0.5 block">
+                    {arenasList.length} Gelanggang
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Riwayat Match di Gelanggang Ini:</span>
+                  <span className="text-sm font-bold text-rose-300 mt-0.5 block">
+                    {histories?.length || 0} Arsip Riwayat
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Kategori Seni Aktif:</span>
+                  <span className="text-sm font-bold text-purple-300 mt-0.5 block">
+                    {tgrState?.pesertaList?.length || 0} Atlet Terdaftar
+                  </span>
+                </div>
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-[10px] text-slate-400 block font-sans">Koneksi Persistence:</span>
+                  <span className="text-sm font-bold text-emerald-300 mt-0.5 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Server Lokal Siap
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 1 & 2 Grid: Scope & Reset Options */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left: Scope Selection */}
+              <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 block mb-1">
+                    LANGKAH 1
+                  </span>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <LayoutGrid className="w-4 h-4 text-rose-400" />
+                    Pilih Cakupan Gelanggang yang Direset
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Tentukan apakah reset berlaku ke seluruh turnamen atau gelanggang tertentu saja.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Option: Semua Gelanggang */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetScope('all_arenas'); }}
+                    className={`block p-4 rounded-xl border cursor-pointer transition-all ${
+                      resetScope === 'all_arenas'
+                        ? 'bg-rose-950/30 border-rose-500 ring-2 ring-rose-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_scope"
+                        checked={resetScope === 'all_arenas'}
+                        onChange={() => setResetScope('all_arenas')}
+                        className="mt-1 w-4 h-4 text-rose-600 focus:ring-rose-500 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold">Semua Gelanggang (Turnamen Penuh)</span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-slate-950 uppercase">
+                            SEMUA MATRAS
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mereset seluruh gelanggang terdaftar ({arenasList.map(a => a.nama).join(', ')}) secara serentak. Sangat cocok sebelum turnamen resmi dimulai atau saat ganti hari tanding.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Option: Gelanggang Tertentu */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetScope('single_arena'); }}
+                    className={`block p-4 rounded-xl border cursor-pointer transition-all ${
+                      resetScope === 'single_arena'
+                        ? 'bg-rose-950/30 border-rose-500 ring-2 ring-rose-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_scope"
+                        checked={resetScope === 'single_arena'}
+                        onChange={() => setResetScope('single_arena')}
+                        className="mt-1 w-4 h-4 text-rose-600 focus:ring-rose-500 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold">Hanya Gelanggang Tertentu Saja</span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                            1 MATRAS
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Hanya membersihkan data gelanggang yang Anda pilih di bawah tanpa mengganggu gelanggang lain yang sedang berjalan.
+                        </p>
+
+                        {resetScope === 'single_arena' && (
+                          <div className="pt-2">
+                            <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                              Pilih Gelanggang Target:
+                            </label>
+                            <select
+                              value={resetTargetArenaId}
+                              onChange={(e) => setResetTargetArenaId(e.target.value)}
+                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 font-semibold"
+                            >
+                              {arenasList.map(a => (
+                                <option key={a.id} value={a.id}>
+                                  {a.nama} ({a.modeAktif === 'seni' ? 'Kategori Seni' : 'Kategori Tanding'}) - {a.keterangan || a.id}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Audit Note input */}
+                <div className="pt-2">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Catatan Alasan Reset (Opsional untuk Jejak Audit):
+                  </label>
+                  <input
+                    type="text"
+                    value={resetNote}
+                    onChange={(e) => setResetNote(e.target.value)}
+                    placeholder="e.g. Simulasi uji coba selesai, persiapan babak final"
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              {/* Right: Reset Target Options */}
+              <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 block mb-1">
+                      LANGKAH 2
+                    </span>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-rose-400" />
+                      Pilih Target Data yang Akan Direset
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Preset 1: Total Factory Reset */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('all'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'all'
+                        ? 'bg-red-950/40 border-red-500 ring-2 ring-red-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'all'}
+                        onChange={() => setResetType('all')}
+                        className="mt-1 w-4 h-4 text-red-600 focus:ring-red-500 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-red-300">
+                            🔴 RESET DATA TOTAL TURNAMEN (PABRIK / KOMPLIT)
+                          </span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white uppercase">
+                            PALING LENGKAP
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mereset total skor tanding (0-0), mengosongkan nilai juri seni 1..10, mengembalikan status peserta seni ke "Belum Menilai", mereset pemenang bagan/bracket kembali ke awal, dan mengosongkan seluruh arsip riwayat pertandingan (Match History).
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Preset 2: Scores Live Only */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('scores_only'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'scores_only'
+                        ? 'bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'scores_only'}
+                        onChange={() => setResetType('scores_only')}
+                        className="mt-1 w-4 h-4 text-amber-500 focus:ring-amber-400 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-amber-300">
+                            🟠 Reset Skor Live Tanding & Seni Saja
+                          </span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            BAGAN AMAN
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mengosongkan skor live pertandingan di matras (babak tanding dan nilai juri seni), namun daftar atlet, susunan bagan bracket, dan arsip riwayat pertandingan tetap dipertahankan.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Preset 3: Seni Only */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('seni_only'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'seni_only'
+                        ? 'bg-purple-950/40 border-purple-500 ring-2 ring-purple-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'seni_only'}
+                        onChange={() => setResetType('seni_only')}
+                        className="mt-1 w-4 h-4 text-purple-600 focus:ring-purple-500 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-purple-300">
+                            🟣 Reset Kategori Seni / TGR Saja
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mengosongkan skor semua juri seni, reset waktu tampil ke 0, hapus deduksi dewan, dan kembalikan status peserta seni ke "Belum Menilai". Pertandingan tanding tidak terpengaruh.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Preset 4: Tanding Only */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('tanding_only'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'tanding_only'
+                        ? 'bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'tanding_only'}
+                        onChange={() => setResetType('tanding_only')}
+                        className="mt-1 w-4 h-4 text-blue-600 focus:ring-blue-500 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-blue-300">
+                            🔵 Reset Kategori Tanding Saja
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mengosongkan skor live sudut merah dan biru (kembali 0-0), reset hit juri 1-3, reset binaan/teguran dewan, dan kembalikan ke Babak 1 timer awal. Kategori seni tidak terpengaruh.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Preset 5: Histories Only */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('history_only'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'history_only'
+                        ? 'bg-slate-800/80 border-slate-500 ring-2 ring-slate-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'history_only'}
+                        onChange={() => setResetType('history_only')}
+                        className="mt-1 w-4 h-4 text-slate-400 focus:ring-slate-400 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-200">
+                            ⚪ Kosongkan Arsip Riwayat Pertandingan (History Clean) Saja
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Hanya menghapus daftar riwayat match history yang tersimpan di server tanpa mengubah skor atau jalannya partai yang sedang berlangsung di matras.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Preset 6: Peserta & Kontingen */}
+                  <label
+                    onClick={() => { playBeep('click'); setResetType('peserta_kontingen'); }}
+                    className={`block p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      resetType === 'peserta_kontingen'
+                        ? 'bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/40 text-white'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="reset_type"
+                        checked={resetType === 'peserta_kontingen'}
+                        onChange={() => setResetType('peserta_kontingen')}
+                        className="mt-1 w-4 h-4 text-emerald-500 focus:ring-emerald-400 bg-slate-900 border-slate-700"
+                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-emerald-300">
+                            🟢 Reset Data Kontingen & Peserta Semua Panel
+                          </span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            SEMUA MATRAS & BAGAN
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Mereset nama atlet & kontingen tanding kembali ke default, mengosongkan seluruh bagan pertandingan/bracket, serta membersihkan seluruh data atlet & pool kategori seni TGR di semua gelanggang.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-3 border-t border-slate-800 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleOpenResetModal}
+                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-950/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Lanjutkan ke Konfirmasi Reset Total</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* MODAL DOUBLE CONFIRMATION RESET DATA TOTAL */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/50 rounded-2xl max-w-lg w-full p-6 shadow-2xl shadow-rose-950/60 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-rose-400 shrink-0">
+                <AlertTriangle className="w-6 h-6 animate-bounce" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  Konfirmasi Eksekusi Reset Data Total
+                </h3>
+                <p className="text-xs text-rose-300 font-medium">
+                  Tindakan ini permanen dan akan langsung disinkronkan ke seluruh perangkat & layar monitor.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
+                <span className="text-slate-400">Cakupan Gelanggang:</span>
+                <span className="font-bold text-white">
+                  {resetScope === 'all_arenas' ? 'SEMUA Gelanggang' : `Gelanggang ${resetTargetArenaId}`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/80">
+                <span className="text-slate-400">Target Reset:</span>
+                <span className="font-bold text-rose-300">
+                  {resetType === 'all' ? 'RESET DATA TOTAL (Pabrik / Komplit)' :
+                   resetType === 'scores_only' ? 'Reset Skor Live Tanding & Seni Saja' :
+                   resetType === 'seni_only' ? 'Reset Kategori Seni Saja' :
+                   resetType === 'tanding_only' ? 'Reset Kategori Tanding Saja' :
+                   resetType === 'peserta_kontingen' ? 'Reset Data Kontingen & Peserta Semua Panel' :
+                   'Kosongkan Riwayat Pertandingan Saja'}
+                </span>
+              </div>
+              {resetNote && (
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-400">Catatan Audit:</span>
+                  <span className="font-medium text-slate-300 truncate max-w-[200px]">{resetNote}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Checkbox agreement */}
+            <label className="flex items-start gap-3 p-3 bg-rose-950/30 border border-rose-900/60 rounded-xl cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isConfirmUnderstood}
+                onChange={(e) => setIsConfirmUnderstood(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-rose-600 focus:ring-rose-500 bg-slate-900 border-rose-700"
+              />
+              <span className="text-xs text-rose-200 leading-relaxed select-none">
+                Saya menyatakan memahami bahwa data yang dipilih akan direset dan tindakan ini tidak dapat dibatalkan.
+              </span>
+            </label>
+
+            {/* Type RESET verification */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                Ketik <strong className="text-rose-400 font-mono tracking-wider">RESET</strong> dengan huruf kapital untuk mengaktifkan tombol eksekusi:
+              </label>
+              <input
+                type="text"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="RESET"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm font-mono font-bold text-white focus:outline-none focus:border-rose-500 text-center tracking-widest placeholder:text-slate-600"
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => { playBeep('click'); setIsResetModalOpen(false); }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl cursor-pointer"
+              >
+                Batal (Aman)
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteResetDataTotal}
+                disabled={isExecutingReset || !isConfirmUnderstood || resetConfirmText.trim().toUpperCase() !== 'RESET'}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-black rounded-xl shadow-lg shadow-rose-950/60 flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isExecutingReset ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Mengeksekusi Reset...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Eksekusi Reset Sekarang</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL UPLOAD FOTO LAYAR HUKUMAN TANPA BACKGROUND */}
+      <PenaltyPhotoUploaderModal
+        isOpen={isPhotoUploaderOpen}
+        onClose={() => setIsPhotoUploaderOpen(false)}
+        targetSlot={photoUploaderTargetSlot}
+        currentConfig={localPenaltyIcons}
+        onApplyPhoto={handleApplyUploadedPhoto}
+      />
     </div>
   );
 };

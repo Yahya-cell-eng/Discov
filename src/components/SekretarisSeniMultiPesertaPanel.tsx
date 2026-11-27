@@ -617,7 +617,7 @@ export default function SekretarisSeniMultiPesertaPanel({
 
                 return (
                   <button
-                    key={p.id}
+                    key={`${p.id || 'p'}__${idx}`}
                     type="button"
                     onClick={() => handleSetActivePeserta(p.id)}
                     className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 flex-shrink-0 transition-all cursor-pointer ${
@@ -812,7 +812,7 @@ export default function SekretarisSeniMultiPesertaPanel({
 
                           return (
                             <tr 
-                              key={p.id}
+                              key={`${p.id || 'p'}__${idx}`}
                               className={`transition-colors ${
                                 isCurrentlyPerforming 
                                   ? 'bg-amber-950/30 font-bold' 

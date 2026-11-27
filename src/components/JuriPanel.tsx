@@ -9,6 +9,7 @@ import { Shield, Play, UserCheck, Zap, AlertTriangle, Coins, Sun, Moon, Lock, Ma
 import { MatchState } from '../types';
 import { playBeep } from '../utils/sound';
 import ThemePaletteSelector from './ThemePaletteSelector';
+import { IconVisualSahBiru, IconVisualTidakSah, IconVisualSahMerah } from './VerificationVoteVisuals';
 
 interface JuriPanelProps {
   juriId: 1 | 2 | 3;
@@ -102,68 +103,74 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
       theme === 'dark' ? 'text-slate-100 bg-slate-950' : 'text-slate-800 bg-slate-50'
     }`}>
       
-      {/* 1. Header Display */}
-      <div className={`flex justify-between items-center pb-3 border px-4 py-2 rounded-xl shadow-lg transition-all duration-300 ${
+      {/* 1. Header Display - Responsive for HP, Tablet & Laptop */}
+      <div className={`flex flex-col sm:flex-row justify-between items-center gap-1.5 sm:gap-2 pb-2 sm:pb-3 border px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-lg transition-all duration-300 flex-shrink-0 ${
         theme === 'dark' 
-          ? 'border-slate-805 bg-gradient-to-r from-slate-900/40 via-slate-900 to-slate-900/40 text-slate-100' 
-          : 'border-slate-205 bg-gradient-to-r from-slate-200/40 via-slate-200 to-slate-200/40 text-slate-800'
+          ? 'border-slate-800 bg-gradient-to-r from-slate-900/60 via-slate-900 to-slate-900/60 text-slate-100' 
+          : 'border-slate-200 bg-gradient-to-r from-slate-200/60 via-slate-100 to-slate-200/60 text-slate-800'
       }`}>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={closeBack}
-            className={`px-2.5 py-1 text-xs cursor-pointer rounded transition-colors font-bold uppercase ${
-              theme === 'dark' 
-                ? 'bg-slate-800 hover:bg-slate-705 border border-slate-700 text-slate-300' 
-                : 'bg-white hover:bg-slate-100 border border-slate-300 text-slate-750'
-            }`}
-          >
-            ← Keluar
-          </button>
-          <button
-            onClick={onToggleTheme}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-amber-400' : 'hover:bg-slate-200 text-slate-600'}`}
-            title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
-          >
-            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
+        <div className="flex items-center justify-between w-full sm:w-auto gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            <button 
+              onClick={closeBack}
+              className={`px-2 py-1 text-[11px] sm:text-xs cursor-pointer rounded-lg transition-colors font-bold uppercase ${
+                theme === 'dark' 
+                  ? 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300' 
+                  : 'bg-white hover:bg-slate-100 border border-slate-300 text-slate-700'
+              }`}
+            >
+              ← Keluar
+            </button>
+            <button
+              onClick={onToggleTheme}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-amber-400' : 'hover:bg-slate-200 text-slate-600'}`}
+              title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
+            >
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+            <ThemePaletteSelector compact={true} />
+            <button
+              onClick={toggleFullscreen}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-200 text-slate-600'}`}
+              title="Toggle Fullscreen"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </div>
 
-          <ThemePaletteSelector compact={true} />
-          
-          <button
-            onClick={toggleFullscreen}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-200 text-slate-600'}`}
-            title="Toggle Fullscreen"
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-          <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-300'}`} />
-          <div className="flex items-center gap-1.5">
-            <UserCheck className={`w-4 h-4 ${theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'}`} />
-            <span className={`text-xs font-mono font-black uppercase tracking-wider ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>PANEL JURI {juriId}</span>
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-950/40 border border-cyan-800/40">
+            <UserCheck className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'}`} />
+            <span className={`text-[11px] sm:text-xs font-mono font-black uppercase tracking-wider ${theme === 'dark' ? 'text-cyan-300' : 'text-cyan-700'}`}>
+              JURI {juriId}
+            </span>
           </div>
         </div>
 
         {/* Central Round/Waktu indicator */}
-        <div className="flex flex-col items-center">
-          <div className="flex items-center gap-2.5">
-            <span className={`text-[10px] border px-2 py-0.5 rounded font-mono font-bold uppercase ${
-              theme === 'dark' ? 'bg-cyan-950 border-cyan-800/40 text-cyan-350' : 'bg-cyan-50 border-cyan-200 text-cyan-705'
-            }`}>
-              BABAK AKTIF: {state.currentBabak}
-            </span>
-            <div className={`text-lg md:text-xl font-mono font-black flex items-center gap-1 px-2.5 py-0.5 rounded border transition-all duration-300 ${
-              theme === 'dark' 
-                ? 'bg-slate-955 border-slate-800' 
-                : 'bg-white border-slate-201 text-slate-800'
-            } ${state.timerActive ? 'text-green-405 animate-pulse' : 'text-amber-500'}`}>
-              <Play className={`w-3.5 h-3.5 fill-current ${state.timerActive ? 'rotate-90' : ''}`} />
-              {formatTimer(state.timerSeconds)}
-            </div>
+        <div className="flex items-center justify-between sm:justify-center w-full sm:w-auto gap-2">
+          <span className={`text-[9.5px] sm:text-[10px] border px-2 py-0.5 rounded-lg font-mono font-bold uppercase ${
+            theme === 'dark' ? 'bg-cyan-950/60 border-cyan-800/40 text-cyan-300' : 'bg-cyan-50 border-cyan-200 text-cyan-700'
+          }`}>
+            BABAK: {state.currentBabak}
+          </span>
+          <div className={`text-base sm:text-lg md:text-xl font-mono font-black flex items-center gap-1 px-2.5 py-0.5 rounded-lg border transition-all duration-300 ${
+            theme === 'dark' 
+              ? 'bg-slate-950 border-slate-800' 
+              : 'bg-white border-slate-200 text-slate-800'
+          } ${state.timerActive ? 'text-emerald-400 animate-pulse' : 'text-amber-500'}`}>
+            <Play className={`w-3 h-3 fill-current ${state.timerActive ? 'rotate-90' : ''}`} />
+            {formatTimer(state.timerSeconds)}
+          </div>
+          {/* Match metadata badge on mobile */}
+          <div className="flex items-center gap-1 sm:hidden text-[10px] font-mono">
+            <span className="font-bold text-amber-400">P{state.partai || '01'}</span>
+            <span className="text-slate-500">·</span>
+            <span className="text-slate-300 truncate max-w-[80px]">{state.kelas || '-'}</span>
           </div>
         </div>
 
-        {/* Short Profile Profile info */}
-        <div className={`text-right text-[11px] font-mono flex items-center gap-1.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-505'}`}>
+        {/* Desktop Profile info */}
+        <div className={`hidden sm:flex text-right text-[11px] font-mono items-center gap-1.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
           <div>
             PARTAI <span className={`font-black text-xs px-2 py-0.5 rounded-md shadow-sm ml-1 ${theme === 'dark' ? 'bg-indigo-950 text-indigo-300 border border-indigo-900/50' : 'bg-indigo-50 text-indigo-700 border border-indigo-200 font-extrabold'}`}>{state.partai}</span>
           </div>
@@ -203,9 +210,9 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
 
             {/* Micro score board showing this Juri's individual contribution logs */}
             <div className="text-right bg-blue-950/40 px-2 py-1 rounded border border-blue-900/30 font-mono flex gap-2 text-[10px]">
-              <div>B1: <span className="text-cyan-405 font-bold">{getMyJuriRoundPoints('biru', 1)}</span></div>
-              <div>B2: <span className="text-cyan-405 font-bold">{getMyJuriRoundPoints('biru', 2)}</span></div>
-              <div>B3: <span className="text-cyan-405 font-bold">{getMyJuriRoundPoints('biru', 3)}</span></div>
+              <div>B1: <span className="text-cyan-400 font-bold">{getMyJuriRoundPoints('biru', 1)}</span></div>
+              <div>B2: <span className="text-cyan-400 font-bold">{getMyJuriRoundPoints('biru', 2)}</span></div>
+              <div>B3: <span className="text-cyan-400 font-bold">{getMyJuriRoundPoints('biru', 3)}</span></div>
             </div>
           </div>
 
@@ -233,7 +240,7 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
                   ? 'bg-slate-900/20 border-slate-900 text-slate-700 cursor-not-allowed' 
                   : clickedButton?.sudut === 'biru' && clickedButton?.type === 'kick'
                     ? 'bg-cyan-500 border-cyan-400 text-slate-950 font-black scale-95 shadow-[0_0_20px_rgba(34,211,238,0.6)]'
-                    : 'bg-gradient-to-b from-blue-900/20 to-blue-950/30 border border-blue-900/60 hover:from-blue-900/30 hover:to-blue-950/40 text-cyan-455 font-bold hover:border-cyan-500 shadow-md'
+                    : 'bg-gradient-to-b from-blue-900/20 to-blue-950/30 border border-blue-900/60 hover:from-blue-900/30 hover:to-blue-950/40 text-cyan-400 font-bold hover:border-cyan-500 shadow-md'
               }`}
             >
               <span className="text-4xl sm:text-5xl mb-1 filter drop-shadow select-none leading-none">🦵</span>
@@ -287,9 +294,9 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
           <div className="flex justify-between items-center border-b border-red-900/25 pb-1 flex-shrink-0 z-10">
             {/* Micro score board showing this Juri's individual contribution logs */}
             <div className="text-right bg-red-950/40 px-2 py-1 rounded border border-red-900/30 font-mono flex gap-2 text-[10px]">
-              <div>B1: <span className="text-red-450 font-bold">{getMyJuriRoundPoints('merah', 1)}</span></div>
-              <div>B2: <span className="text-red-450 font-bold">{getMyJuriRoundPoints('merah', 2)}</span></div>
-              <div>B3: <span className="text-red-450 font-bold">{getMyJuriRoundPoints('merah', 3)}</span></div>
+              <div>B1: <span className="text-red-400 font-bold">{getMyJuriRoundPoints('merah', 1)}</span></div>
+              <div>B2: <span className="text-red-400 font-bold">{getMyJuriRoundPoints('merah', 2)}</span></div>
+              <div>B3: <span className="text-red-400 font-bold">{getMyJuriRoundPoints('merah', 3)}</span></div>
             </div>
 
             <div className="text-right">
@@ -299,7 +306,7 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
               <h4 className="text-sm font-black text-white uppercase mt-1.5 max-w-[12rem] truncate">
                 {state.atletMerah.nama}
               </h4>
-              <p className="text-[9px] text-red-455 uppercase font-semibold font-mono truncate max-w-[11rem]">
+              <p className="text-[9px] text-red-400 uppercase font-semibold font-mono truncate max-w-[11rem]">
                 {state.atletMerah.kontingen}
               </p>
             </div>
@@ -329,7 +336,7 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
                   ? 'bg-slate-900/20 border-slate-900 text-slate-700 cursor-not-allowed' 
                   : clickedButton?.sudut === 'merah' && clickedButton?.type === 'kick'
                     ? 'bg-orange-500 border-orange-400 text-slate-950 font-black scale-95 shadow-[0_0_20px_rgba(249,115,22,0.6)]'
-                    : 'bg-gradient-to-b from-red-900/20 to-red-950/30 border border-red-900/60 hover:from-red-900/30 hover:to-red-950/40 text-orange-455 font-bold hover:border-orange-500 shadow-md'
+                    : 'bg-gradient-to-b from-red-900/20 to-red-950/30 border border-red-900/60 hover:from-red-900/30 hover:to-red-950/40 text-orange-400 font-bold hover:border-orange-500 shadow-md'
               }`}
             >
               <span className="text-4xl sm:text-5xl mb-1 filter drop-shadow select-none leading-none">🦵</span>
@@ -388,27 +395,39 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
                 VERIFIKASI DEWAN PERTANDINGAN
               </h3>
               <p className="text-xs text-slate-400 mb-6">
-                Silakan nyatakan pendapat Anda tentang verifikasi <span className="bg-yellow-950 border border-yellow-800 text-yellow-405 px-2 py-0.5 rounded font-black font-mono">{v.type}</span> yang diinstruksikan dewan.
+                Silakan nyatakan pendapat Anda tentang verifikasi <span className="bg-yellow-950 border border-yellow-800 text-yellow-400 px-2 py-0.5 rounded font-black font-mono">{v.type}</span> yang diinstruksikan dewan.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-2 sm:gap-4">
                 <button
                   onClick={() => castVote('BIRU')}
-                  className="py-4 px-6 cursor-pointer bg-gradient-to-b from-blue-700 to-blue-900 hover:from-blue-600 hover:to-blue-800 text-white font-black text-sm tracking-wider rounded-xl transition-all shadow-md active:scale-95"
+                  className="py-3 sm:py-4 px-2 sm:px-4 cursor-pointer bg-gradient-to-b from-blue-700 via-blue-800 to-blue-950 hover:from-blue-600 hover:to-blue-800 text-white font-black text-xs sm:text-sm tracking-wider rounded-xl sm:rounded-2xl transition-all shadow-lg shadow-blue-950/60 active:scale-95 border border-cyan-400/50 flex flex-col items-center gap-1.5 sm:gap-2 group"
                 >
-                  SUDUT BIRU
+                  <IconVisualSahBiru className="w-10 h-10 sm:w-14 sm:h-14 group-hover:scale-110 transition-transform" />
+                  <span className="font-sans font-black text-xs sm:text-base text-white">SAH BIRU</span>
+                  <span className="text-[9px] sm:text-[10px] text-cyan-300 font-mono font-bold bg-cyan-950/60 px-1.5 sm:px-2 py-0.5 rounded border border-cyan-500/30">
+                    {v.type === 'JATUHAN' ? '+3 POIN' : 'SUDUT BIRU'}
+                  </span>
                 </button>
                 <button
                   onClick={() => castVote('TIDAK_SAH')}
-                  className="py-4 px-6 cursor-pointer bg-gradient-to-b from-slate-700 to-slate-900 hover:from-slate-600 hover:to-slate-800 text-slate-205 font-black text-sm tracking-wider rounded-xl transition-all shadow-md active:scale-95 border border-slate-600"
+                  className="py-3 sm:py-4 px-2 sm:px-4 cursor-pointer bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 hover:from-slate-600 hover:to-slate-800 text-slate-100 font-black text-xs sm:text-sm tracking-wider rounded-xl sm:rounded-2xl transition-all shadow-lg shadow-slate-950/60 active:scale-95 border border-amber-500/50 flex flex-col items-center gap-1.5 sm:gap-2 group"
                 >
-                  TIDAK SAH
+                  <IconVisualTidakSah className="w-10 h-10 sm:w-14 sm:h-14 group-hover:scale-110 transition-transform" />
+                  <span className="font-sans font-black text-xs sm:text-base text-amber-300">TIDAK SAH</span>
+                  <span className="text-[9px] sm:text-[10px] text-amber-200/80 font-mono font-bold bg-amber-950/60 px-1.5 sm:px-2 py-0.5 rounded border border-amber-500/30">
+                    BATAL / 0
+                  </span>
                 </button>
                 <button
                   onClick={() => castVote('MERAH')}
-                  className="py-4 px-6 cursor-pointer bg-gradient-to-b from-red-700 to-red-900 hover:from-red-650 hover:to-red-800 text-white font-black text-sm tracking-wider rounded-xl transition-all shadow-md active:scale-95"
+                  className="py-3 sm:py-4 px-2 sm:px-4 cursor-pointer bg-gradient-to-b from-red-700 via-red-800 to-red-950 hover:from-red-650 hover:to-red-800 text-white font-black text-xs sm:text-sm tracking-wider rounded-xl sm:rounded-2xl transition-all shadow-lg shadow-red-950/60 active:scale-95 border border-rose-400/50 flex flex-col items-center gap-1.5 sm:gap-2 group"
                 >
-                  SUDUT MERAH
+                  <IconVisualSahMerah className="w-10 h-10 sm:w-14 sm:h-14 group-hover:scale-110 transition-transform" />
+                  <span className="font-sans font-black text-xs sm:text-base text-white">SAH MERAH</span>
+                  <span className="text-[9px] sm:text-[10px] text-rose-300 font-mono font-bold bg-rose-950/60 px-1.5 sm:px-2 py-0.5 rounded border border-rose-500/30">
+                    {v.type === 'JATUHAN' ? '+3 POIN' : 'SUDUT MERAH'}
+                  </span>
                 </button>
               </div>
             </motion.div>
@@ -495,7 +514,7 @@ export default function JuriPanel({ juriId, state, dispatch, onBack, theme, onTo
               <div className={`p-3 rounded-xl mb-4 border ${
                 selectedPenaltyCorner === 'biru' 
                   ? 'bg-blue-950/20 border-blue-900/40 text-blue-400' 
-                  : 'bg-red-955/25 border-red-900/40 text-red-400'
+                  : 'bg-red-950/40 border-red-900/40 text-red-400'
               }`}>
                 <div className="text-[10px] uppercase font-mono font-black opacity-75">Nama Pesilat:</div>
                 <div className="text-sm font-black uppercase">

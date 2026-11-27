@@ -30,7 +30,8 @@ import {
   adminCredentials,
   defaultTournamentInfo,
   defaultReferees,
-  defaultAssignments
+  defaultAssignments,
+  defaultPenaltyIcons
 } from './server/masterData.ts';
 import {
   initLocalStorage,
@@ -48,11 +49,48 @@ import {
   getDistPath
 } from './server/builder.ts';
 
+const getPort = (): number => {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const p = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(p)) return p;
+  }
+  if (process.env.APP_PORT) {
+    const p = parseInt(process.env.APP_PORT, 10);
+    if (!isNaN(p)) return p;
+  }
+  if (process.env.DEFAULT_APP_PORT) {
+    const p = parseInt(process.env.DEFAULT_APP_PORT, 10);
+    if (!isNaN(p)) return p;
+  }
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    const p = parseInt(process.env.PORT, 10);
+    if (!isNaN(p)) return p;
+  }
+  return 3000;
+};
+
+const PORT = getPort();
+
 const app = express();
-const PORT = 3000;
+
+// Trust reverse proxies (Nginx, Cloudflare, Caddy, Cloud Run) for HTTPS custom domains
+app.set('trust proxy', 1);
 
 // Enable JSON parsing
 app.use(express.json({ limit: '10mb' }));
+
+// Enable CORS and popup-safe headers for custom domains, OAuth popups, WebViews, and LAN clients
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Initialize persistent server local storage immediately on startup
 initLocalStorage();
@@ -164,8 +202,9 @@ app.get('/api/events', (req, res) => {
   const reqArena = (req.query.arena as string) || 'arena_1';
 
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders && res.flushHeaders();
 
   (res as any)._arenaId = reqArena;
@@ -187,8 +226,32 @@ app.get('/api/events', (req, res) => {
 
   sseClients.push(res);
 
+  // Periodic keep-alive comment prevents reverse proxies (Nginx/Cloudflare) from closing idle SSE streams
+  const heartbeatTimer = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(heartbeatTimer);
+    }
+  }, 25000);
+
   req.on('close', () => {
+    clearInterval(heartbeatTimer);
     sseClients = sseClients.filter(client => client !== res);
+  });
+});
+
+// Health check endpoint for reverse proxies, uptime monitors, and custom domain routing
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    status: 'healthy',
+    service: 'skoring-pencak-silat',
+    host: req.hostname,
+    protocol: req.protocol,
+    uptimeSeconds: Math.floor(process.uptime()),
+    sseClients: sseClients.length,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -403,6 +466,12 @@ app.post('/api/admin/assignments', (req, res) => {
 
   if (allAssignments) {
     masterDataState.assignments = { ...masterDataState.assignments, ...allAssignments };
+    for (const [aId, assign] of Object.entries(allAssignments as Record<string, any>)) {
+      if (arenasMap[aId] && assign && assign.seniJumlahJuri) {
+        arenasMap[aId].tgrState.jumlahJuri = Math.min(10, Math.max(1, parseInt(assign.seniJumlahJuri, 10)));
+        recalculateArenaTGRScores(arenasMap[aId]);
+      }
+    }
     addAuditLog(user.username, 'UPDATE_SEMUA_PENUGASAN', 'Memperbarui seluruh tabel penugasan wasit-juri gelanggang.');
   } else if (arenaId && assignment) {
     masterDataState.assignments[arenaId] = {
@@ -410,7 +479,11 @@ app.post('/api/admin/assignments', (req, res) => {
       ...assignment,
       arenaId
     };
-    addAuditLog(user.username, 'UPDATE_PENUGASAN_GELANGGANG', `Memperbarui penugasan wasit-juri untuk ${assignment.namaGelanggang || arenaId}`);
+    if (arenasMap[arenaId] && assignment.seniJumlahJuri) {
+      arenasMap[arenaId].tgrState.jumlahJuri = Math.min(10, Math.max(1, parseInt(assignment.seniJumlahJuri, 10)));
+      recalculateArenaTGRScores(arenasMap[arenaId]);
+    }
+    addAuditLog(user.username, 'UPDATE_PENUGASAN_GELANGGANG', `Memperbarui penugasan wasit-juri untuk ${assignment.namaGelanggang || arenaId} (Juri Seni: ${assignment.seniJumlahJuri || 5})`);
   } else {
     return res.status(400).json({ success: false, error: 'Data penugasan tidak valid.' });
   }
@@ -422,6 +495,44 @@ app.post('/api/admin/assignments', (req, res) => {
     success: true,
     assignments: masterDataState.assignments,
     message: 'Penugasan wasit & juri gelanggang berhasil disimpan.'
+  });
+});
+
+// 7b. Manage Penalty Icons for Monitor Screen
+app.get('/api/admin/penalty-icons', (req, res) => {
+  return res.json({
+    success: true,
+    penaltyIcons: masterDataState.penaltyIcons || defaultPenaltyIcons
+  });
+});
+
+app.post('/api/admin/penalty-icons', (req, res) => {
+  const authHeader = req.headers.authorization;
+  const user = verifyAdminToken(authHeader);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Akses ditolak. Sesi admin tidak valid.' });
+  }
+
+  const { penaltyIcons } = req.body || {};
+  if (!penaltyIcons || !penaltyIcons.slot1) {
+    return res.status(400).json({ success: false, error: 'Format konfigurasi icon hukuman tidak valid.' });
+  }
+
+  masterDataState.penaltyIcons = { ...penaltyIcons };
+  const getSlotDesc = (val: string) => (typeof val === 'string' && val.startsWith('data:image')) ? 'PNG Kustom' : val;
+  addAuditLog(
+    user.username,
+    'UPDATE_ICON_HUKUMAN',
+    `Memperbarui icon hukuman monitor: S1(${getSlotDesc(penaltyIcons.slot1)}), S2(${getSlotDesc(penaltyIcons.slot2)}), S3(${getSlotDesc(penaltyIcons.slot3)}), S4(${getSlotDesc(penaltyIcons.slot4)}), S5(${getSlotDesc(penaltyIcons.slot5)}), S6(${getSlotDesc(penaltyIcons.slot6)})`
+  );
+
+  broadcastState();
+  saveLocalStorage(true);
+
+  return res.json({
+    success: true,
+    penaltyIcons: masterDataState.penaltyIcons,
+    message: 'Konfigurasi icon hukuman monitor tanding berhasil diperbarui dan disinkronkan ke seluruh gelanggang!'
   });
 });
 
@@ -473,6 +584,135 @@ app.post('/api/admin/reset-master-data', (req, res) => {
     success: true,
     masterData: masterDataState,
     message: 'Data master berhasil direset ke standar resmi IPSI.'
+  });
+});
+
+// Helper for total data reset across arenas
+export const performResetDataTotal = ({
+  scope = 'all_arenas',
+  targetArenaId,
+  resetType = 'all'
+}: {
+  scope?: 'all_arenas' | 'single_arena';
+  targetArenaId?: string;
+  resetType?: 'all' | 'scores_only' | 'seni_only' | 'tanding_only' | 'history_only' | 'peserta_kontingen';
+}) => {
+  const targetArenas = scope === 'single_arena' && targetArenaId && arenasMap[targetArenaId]
+    ? [arenasMap[targetArenaId]]
+    : Object.values(arenasMap);
+
+  for (const a of targetArenas) {
+    if (resetType === 'all' || resetType === 'scores_only' || resetType === 'tanding_only' || resetType === 'peserta_kontingen') {
+      a.state.scores = {
+        merah: { babak1: 0, babak2: 0, babak3: 0, total: 0 },
+        biru: { babak1: 0, babak2: 0, babak3: 0, total: 0 }
+      };
+      a.state.juriHits = [];
+      a.state.dewanPenalties = {
+        merah: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false },
+        biru: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false }
+      };
+      a.state.accumulatedPenaltyDeductions = { merah: 0, biru: 0 };
+      a.state.juriRawScores = {
+        juri1: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } },
+        juri2: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } },
+        juri3: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } }
+      };
+      a.state.timerSeconds = a.state.selectedWaktu || 120;
+      a.state.timerActive = false;
+      a.state.matchStatus = 'idle';
+      a.state.currentBabak = 1;
+      a.state.winner = null;
+      a.state.lastValidScore = null;
+
+      if (resetType === 'all' || resetType === 'peserta_kontingen') {
+        a.state.partai = '01';
+        a.state.atletMerah = { nama: '', kontingen: '' };
+        a.state.atletBiru = { nama: '', kontingen: '' };
+        a.state.baganCategories = [];
+        a.state.activeBaganCategoryId = null;
+        a.state.activeBaganMatchId = null;
+      }
+      recalculateArenaScores(a);
+    }
+
+    if (resetType === 'all' || resetType === 'scores_only' || resetType === 'seni_only' || resetType === 'peserta_kontingen') {
+      a.tgrState.timerActive = false;
+      a.tgrState.timerSeconds = 0;
+      a.tgrState.juriCorrections = {};
+      if (a.tgrState.activeVSMatch) {
+        a.tgrState.activeVSMatch.winner = null;
+      }
+      if (resetType === 'all' || resetType === 'peserta_kontingen') {
+        a.tgrState.pesertaList = [];
+        a.tgrState.partaiPoolList = [];
+        a.tgrState.activePesertaId = null;
+        a.tgrState.activeVSMatch = null;
+        a.tgrState.partai = 'PARTAI 1';
+        a.tgrState.sessionStatus = 'open';
+      } else if (a.tgrState.pesertaList) {
+        a.tgrState.pesertaList.forEach(p => {
+          p.scores = {};
+          p.kebenaranScores = {};
+          delete p.tuningScores;
+          p.isLocked = false;
+          p.decisions = [];
+          p.deductions = 0;
+          p.deductionReasons = [];
+          p.dewanDecisionScore = 0;
+          p.waktuTampil = 0;
+          p.finalizedJuries = [];
+          delete p.finalScore;
+          delete p.ranking;
+          delete p.rankingInPartai;
+          delete p.rankingInPool;
+          p.status = 'Belum Menilai';
+        });
+      }
+      recalculateArenaTGRScores(a);
+    }
+
+    if (resetType === 'all' || resetType === 'history_only') {
+      a.histories = [];
+    }
+  }
+};
+
+// 10. Total Data Reset Route (Protected)
+app.post('/api/admin/reset-total', (req, res) => {
+  const authHeader = req.headers.authorization;
+  const user = verifyAdminToken(authHeader);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Akses ditolak. Sesi admin tidak valid.' });
+  }
+
+  const { scope = 'all_arenas', targetArenaId, resetType = 'all', note } = req.body || {};
+
+  performResetDataTotal({ scope, targetArenaId, resetType });
+
+  const scopeLabel = scope === 'single_arena' && targetArenaId ? `Gelanggang ${targetArenaId}` : 'Semua Gelanggang';
+  const typeLabel = resetType === 'all' ? 'Reset Total (Komplit & Riwayat)' :
+    resetType === 'peserta_kontingen' ? 'Reset Data Kontingen & Peserta Semua Kategori' :
+    resetType === 'scores_only' ? 'Reset Skor Live Tanding & Seni' :
+    resetType === 'seni_only' ? 'Reset Skor Kategori Seni' :
+    resetType === 'tanding_only' ? 'Reset Skor Kategori Tanding' : 'Reset Riwayat Pertandingan Saja';
+
+  addAuditLog(
+    user.username,
+    'RESET_DATA_TOTAL',
+    `Administrator ${user.displayName} melakukan ${typeLabel} pada ${scopeLabel}. ${note ? `Catatan: ${note}` : ''}`
+  );
+
+  broadcastState();
+  saveLocalStorage(true);
+
+  return res.json({
+    success: true,
+    message: `Berhasil melakukan ${typeLabel} untuk ${scopeLabel}. Data tersimpan dan tersinkron ke semua layar.`,
+    scope,
+    resetType,
+    arenasList: getArenasList(),
+    allArenasSummary: getArenasSummary()
   });
 });
 
@@ -617,8 +857,10 @@ app.post('/api/action', (req, res) => {
       type === 'LOAD_BAGAN_MATCH' ||
       type === 'RESET_OR_NEXT_PARTAI' ||
       type === 'SET_BABAK' ||
+      type === 'APPROVE_NEXT_BABAK' ||
       type === 'JURI_HIT' ||
       type === 'DEWAN_PENALTY' ||
+      type === 'TOGGLE_DEWAN_PENALTY' ||
       type === 'SEKRETARIS_ADJUST_PARTAI' ||
       type === 'UPDATE_BAGAN_CATEGORIES' ||
       type === 'UPDATE_EVENT_INFO'
@@ -781,6 +1023,31 @@ app.post('/api/action', (req, res) => {
               tArena.state.baganCategories.push(cat);
             }
           });
+
+          // Renumber partais sequentially per target arena and stamp arena consistency
+          targetArenaIds.forEach((targetId: string) => {
+            const tArena = getArena(targetId);
+            if (tArena && tArena.state.baganCategories) {
+              let pNum = 1;
+              tArena.state.baganCategories.forEach((cat: any) => {
+                cat.arenaId = tArena.info.id;
+                cat.gelanggang = tArena.info.nama;
+                cat.matches.forEach((m: any) => {
+                  m.arenaId = tArena.info.id;
+                  m.gelanggang = tArena.info.nama;
+                  m.partai = `Partai ${pNum < 10 ? '0' + pNum : pNum}`;
+                  pNum++;
+                });
+              });
+              const firstCat = tArena.state.baganCategories[0];
+              const firstMatch = firstCat?.matches[0];
+              if (firstMatch) {
+                tArena.state.activeBaganCategoryId = firstCat.id;
+                tArena.state.activeBaganMatchId = firstMatch.id;
+                tArena.state.partai = firstMatch.partai;
+              }
+            }
+          });
         }
         break;
       }
@@ -855,16 +1122,30 @@ app.post('/api/action', (req, res) => {
             a.state.baganCategories = [];
           });
 
-          tandingCategories.forEach((cat: any, idx: number) => {
-            const targetArena = tandingArenas[idx % tandingArenas.length];
-            targetArena.state.baganCategories.push(JSON.parse(JSON.stringify(cat)));
-          });
+          // Check if categories have pre-assigned arenaId
+          const hasPreassignedArena = tandingCategories.some((c: any) => c.arenaId && tandingArenas.some(a => a.info.id === c.arenaId));
 
-          // Renumber partais sequentially per arena
+          if (hasPreassignedArena) {
+            tandingCategories.forEach((cat: any) => {
+              const targetArena = tandingArenas.find(a => a.info.id === cat.arenaId) || tandingArenas[0];
+              targetArena.state.baganCategories.push(JSON.parse(JSON.stringify(cat)));
+            });
+          } else {
+            tandingCategories.forEach((cat: any, idx: number) => {
+              const targetArena = tandingArenas[idx % tandingArenas.length];
+              targetArena.state.baganCategories.push(JSON.parse(JSON.stringify(cat)));
+            });
+          }
+
+          // Renumber partais sequentially per arena and guarantee same-arena consistency for all rounds
           tandingArenas.forEach(arena => {
             let partaiNum = 1;
             arena.state.baganCategories.forEach(cat => {
+              cat.arenaId = arena.info.id;
+              cat.gelanggang = arena.info.nama;
               cat.matches.forEach((m: any) => {
+                m.arenaId = arena.info.id;
+                m.gelanggang = arena.info.nama;
                 m.partai = `Partai ${partaiNum < 10 ? '0' + partaiNum : partaiNum}`;
                 partaiNum++;
               });
@@ -893,21 +1174,45 @@ app.post('/api/action', (req, res) => {
             a.tgrState.activePesertaId = null;
           });
 
-          seniPesertaList.forEach((p: any, idx: number) => {
-            const targetArena = seniArenas[idx % seniArenas.length];
-            const newOrder = targetArena.tgrState.pesertaList.length + 1;
-            const newP = {
-              ...p,
-              noUrut: newOrder,
-              partaiNumber: newOrder,
-              partai: `PARTAI ${newOrder < 10 ? '0' + newOrder : newOrder}`
-            };
-            targetArena.tgrState.pesertaList.push(newP);
-            if (!targetArena.tgrState.activePesertaId) {
-              targetArena.tgrState.activePesertaId = newP.id;
-              targetArena.tgrState.partai = newP.partai;
-            }
-          });
+          const hasPreassignedSeniArena = seniPesertaList.some((p: any) => p.arenaId && seniArenas.some(a => a.info.id === p.arenaId));
+
+          if (hasPreassignedSeniArena) {
+            seniPesertaList.forEach((p: any) => {
+              const targetArena = seniArenas.find(a => a.info.id === p.arenaId) || seniArenas[0];
+              const newOrder = targetArena.tgrState.pesertaList.length + 1;
+              const newP = {
+                ...p,
+                noUrut: newOrder,
+                partaiNumber: p.partaiNumber || newOrder,
+                partai: p.partai || `PARTAI ${newOrder < 10 ? '0' + newOrder : newOrder}`,
+                arenaId: targetArena.info.id,
+                gelanggang: targetArena.info.nama
+              };
+              targetArena.tgrState.pesertaList.push(newP);
+              if (!targetArena.tgrState.activePesertaId) {
+                targetArena.tgrState.activePesertaId = newP.id;
+                targetArena.tgrState.partai = newP.partai;
+              }
+            });
+          } else {
+            seniPesertaList.forEach((p: any, idx: number) => {
+              const targetArena = seniArenas[idx % seniArenas.length];
+              const newOrder = targetArena.tgrState.pesertaList.length + 1;
+              const newP = {
+                ...p,
+                noUrut: newOrder,
+                partaiNumber: newOrder,
+                partai: `PARTAI ${newOrder < 10 ? '0' + newOrder : newOrder}`,
+                arenaId: targetArena.info.id,
+                gelanggang: targetArena.info.nama
+              };
+              targetArena.tgrState.pesertaList.push(newP);
+              if (!targetArena.tgrState.activePesertaId) {
+                targetArena.tgrState.activePesertaId = newP.id;
+                targetArena.tgrState.partai = newP.partai;
+              }
+            });
+          }
 
           seniArenas.forEach(a => {
             if (a.tgrState.pesertaList.length > 0) {
@@ -919,6 +1224,7 @@ app.post('/api/action', (req, res) => {
       }
 
       // --- TANDING ACTIONS ---
+      case 'UPDATE_MATCH_INFO':
       case 'UPDATE_EVENT_INFO': {
         state.namaEvent = payload.namaEvent || state.namaEvent;
         state.partai = payload.partai || state.partai;
@@ -1023,6 +1329,38 @@ app.post('/api/action', (req, res) => {
         }
         break;
       }
+      case 'RESET_SKOR': {
+        state.juriHits = [];
+        state.winner = null;
+        state.timerActive = false;
+        state.currentBabak = 1;
+        state.timerSeconds = state.selectedWaktu;
+        state.matchStatus = 'idle';
+        state.directPoints = { merah: 0, biru: 0 };
+        state.accumulatedPenaltyDeductions = { merah: 0, biru: 0 };
+        state.scores = {
+          merah: { babak1: 0, babak2: 0, babak3: 0, total: 0 },
+          biru: { babak1: 0, babak2: 0, babak3: 0, total: 0 }
+        };
+        state.dewanPenalties = {
+          merah: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false },
+          biru: { binaan1: false, binaan2: false, teguran1: false, teguran2: false, peringatan1: false, peringatan2: false, disqualified: false }
+        };
+        state.juriRawScores = {
+          juri1: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } },
+          juri2: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } },
+          juri3: { merah: { 1: 0, 2: 0, 3: 0 }, biru: { 1: 0, 2: 0, 3: 0 } }
+        };
+        state.verification = {
+          active: false,
+          type: null,
+          votes: { juri1: null, juri2: null, juri3: null },
+          result: null
+        };
+        state.lastValidScore = null;
+        recalculateArenaScores(arena);
+        break;
+      }
       case 'START_MATCH': {
         state.juriHits = [];
         state.winner = null;
@@ -1031,6 +1369,7 @@ app.post('/api/action', (req, res) => {
         state.timerSeconds = state.selectedWaktu;
         state.matchStatus = 'running';
         state.directPoints = { merah: 0, biru: 0 };
+        state.accumulatedPenaltyDeductions = { merah: 0, biru: 0 };
         state.scores = {
           merah: { babak1: 0, babak2: 0, babak3: 0, total: 0 },
           biru: { babak1: 0, babak2: 0, babak3: 0, total: 0 }
@@ -1071,30 +1410,100 @@ app.post('/api/action', (req, res) => {
         break;
       }
       case 'SET_BABAK': {
-        const targetBabak = payload.babak;
+        const targetBabak = typeof payload === 'number' ? payload : (payload?.babak ?? state.currentBabak);
+        
+        // If advancing to a new babak, transfer active penalties to accumulated deductions so score stays accurate
+        if (targetBabak !== state.currentBabak) {
+          const penM = state.dewanPenalties.merah;
+          let deductM = 0;
+          if (penM.teguran1) deductM += 1;
+          if (penM.teguran2) deductM += 2;
+          if (penM.peringatan1) deductM += 5;
+          if (penM.peringatan2) deductM += 10;
+
+          const penB = state.dewanPenalties.biru;
+          let deductB = 0;
+          if (penB.teguran1) deductB += 1;
+          if (penB.teguran2) deductB += 2;
+          if (penB.peringatan1) deductB += 5;
+          if (penB.peringatan2) deductB += 10;
+
+          state.accumulatedPenaltyDeductions = state.accumulatedPenaltyDeductions || { merah: 0, biru: 0 };
+          state.accumulatedPenaltyDeductions.merah += deductM;
+          state.accumulatedPenaltyDeductions.biru += deductB;
+        }
+
         state.currentBabak = targetBabak;
         state.timerSeconds = state.selectedWaktu;
         state.timerActive = false;
         state.matchStatus = 'paused';
         
-        state.dewanPenalties.merah.binaan1 = false;
-        state.dewanPenalties.merah.binaan2 = false;
-        state.dewanPenalties.biru.binaan1 = false;
-        state.dewanPenalties.biru.binaan2 = false;
+        // Hukuman otomatis hilang ketika masuk babak selanjutnya di kategori tanding
+        state.dewanPenalties.merah = {
+          binaan1: false,
+          binaan2: false,
+          teguran1: false,
+          teguran2: false,
+          peringatan1: false,
+          peringatan2: false,
+          disqualified: state.dewanPenalties.merah.disqualified
+        };
+        state.dewanPenalties.biru = {
+          binaan1: false,
+          binaan2: false,
+          teguran1: false,
+          teguran2: false,
+          peringatan1: false,
+          peringatan2: false,
+          disqualified: state.dewanPenalties.biru.disqualified
+        };
         recalculateArenaScores(arena);
         break;
       }
       case 'APPROVE_NEXT_BABAK': {
         if (state.currentBabak < 3) {
+          const penM = state.dewanPenalties.merah;
+          let deductM = 0;
+          if (penM.teguran1) deductM += 1;
+          if (penM.teguran2) deductM += 2;
+          if (penM.peringatan1) deductM += 5;
+          if (penM.peringatan2) deductM += 10;
+
+          const penB = state.dewanPenalties.biru;
+          let deductB = 0;
+          if (penB.teguran1) deductB += 1;
+          if (penB.teguran2) deductB += 2;
+          if (penB.peringatan1) deductB += 5;
+          if (penB.peringatan2) deductB += 10;
+
+          state.accumulatedPenaltyDeductions = state.accumulatedPenaltyDeductions || { merah: 0, biru: 0 };
+          state.accumulatedPenaltyDeductions.merah += deductM;
+          state.accumulatedPenaltyDeductions.biru += deductB;
+
           state.currentBabak += 1;
           state.timerSeconds = state.selectedWaktu;
           state.timerActive = false;
           state.matchStatus = 'paused';
           
-          state.dewanPenalties.merah.binaan1 = false;
-          state.dewanPenalties.merah.binaan2 = false;
-          state.dewanPenalties.biru.binaan1 = false;
-          state.dewanPenalties.biru.binaan2 = false;
+          // Hukuman otomatis hilang ketika masuk babak selanjutnya di kategori tanding
+          state.dewanPenalties.merah = {
+            binaan1: false,
+            binaan2: false,
+            teguran1: false,
+            teguran2: false,
+            peringatan1: false,
+            peringatan2: false,
+            disqualified: state.dewanPenalties.merah.disqualified
+          };
+          state.dewanPenalties.biru = {
+            binaan1: false,
+            binaan2: false,
+            teguran1: false,
+            teguran2: false,
+            peringatan1: false,
+            peringatan2: false,
+            disqualified: state.dewanPenalties.biru.disqualified
+          };
           recalculateArenaScores(arena);
         }
         break;
@@ -1153,6 +1562,8 @@ app.post('/api/action', (req, res) => {
           baganCategories: existingCategories,
           currentBabak: 1,
           timerSeconds: init.selectedWaktu,
+          accumulatedPenaltyDeductions: { merah: 0, biru: 0 },
+          directPoints: { merah: 0, biru: 0 },
           activeBaganCategoryId: null,
           activeBaganMatchId: null,
           juriRawScores: {
@@ -1177,7 +1588,7 @@ app.post('/api/action', (req, res) => {
         state.juriRawScores[`juri${juriId}`][sudut][b] += pts;
 
         const newHit: JuriHit = {
-          id: Math.random().toString(36).substring(2),
+          id: `hit_${now}_${Math.random().toString(36).slice(2, 7)}`,
           juriId,
           sudut,
           aksi,
@@ -1221,16 +1632,19 @@ app.post('/api/action', (req, res) => {
         state.juryPenaltyAccess = !state.juryPenaltyAccess;
         break;
       }
-      case 'DEWAN_PENALTY': {
-        const { sudut, penaltyType } = payload as { sudut: 'merah' | 'biru'; penaltyType: keyof DewanPenaltyCorner };
-        const val = state.dewanPenalties[sudut][penaltyType];
-        
-        state.dewanPenalties[sudut][penaltyType] = !val;
+      case 'DEWAN_PENALTY':
+      case 'TOGGLE_DEWAN_PENALTY': {
+        const sudut = (payload.sudut || payload.corner) as 'merah' | 'biru';
+        const penaltyType = payload.penaltyType as keyof DewanPenaltyCorner;
+        if (sudut && penaltyType && state.dewanPenalties[sudut]) {
+          const val = state.dewanPenalties[sudut][penaltyType];
+          state.dewanPenalties[sudut][penaltyType] = !val;
 
-        if (penaltyType === 'disqualified' && state.dewanPenalties[sudut][penaltyType]) {
-          determineArenaWinner(arena);
-        } else {
-          recalculateArenaScores(arena);
+          if (penaltyType === 'disqualified' && state.dewanPenalties[sudut][penaltyType]) {
+            determineArenaWinner(arena);
+          } else {
+            recalculateArenaScores(arena);
+          }
         }
         break;
       }
@@ -1374,6 +1788,17 @@ app.post('/api/action', (req, res) => {
 
             state.verification.result = maj;
             
+            state.lastVerificationResult = {
+              type: state.verification.type,
+              result: maj,
+              votes: { ...v },
+              timestamp: Date.now(),
+              atletNama: maj === 'BIRU' ? state.atletBiru?.nama : maj === 'MERAH' ? state.atletMerah?.nama : undefined,
+              kontingen: maj === 'BIRU' ? state.atletBiru?.kontingen : maj === 'MERAH' ? state.atletMerah?.kontingen : undefined,
+              babak: state.currentBabak,
+              partai: state.partai
+            };
+
             if (state.verification.type === 'JATUHAN') {
               if (maj === 'MERAH') {
                 state.directPoints.merah += 3;
@@ -1545,8 +1970,13 @@ app.post('/api/action', (req, res) => {
         }
         tgrState.gelanggang = payload.gelanggang || tgrState.gelanggang;
         tgrState.partai = payload.partai || tgrState.partai;
-        tgrState.babak = payload.babak || tgrState.babak;
-        tgrState.jumlahJuri = payload.jumlahJuri || tgrState.jumlahJuri;
+        if (payload.jumlahJuri) {
+          const jCount = Math.min(10, Math.max(1, parseInt(payload.jumlahJuri, 10)));
+          tgrState.jumlahJuri = jCount;
+          if (masterDataState.assignments[arena.info.id]) {
+            masterDataState.assignments[arena.info.id].seniJumlahJuri = jCount;
+          }
+        }
         if (payload.sistemSeni) {
           tgrState.sistemSeni = payload.sistemSeni;
         }
@@ -1557,6 +1987,17 @@ app.post('/api/action', (req, res) => {
           tgrState.selectedWaktu = payload.selectedWaktu;
         }
         recalculateArenaTGRScores(arena);
+        break;
+      }
+      case 'TGR_SET_PARTAI': {
+        const newPartai = (payload.partai || payload).toString().trim();
+        tgrState.partai = newPartai;
+        if (tgrState.activePesertaId) {
+          const act = tgrState.pesertaList.find(p => p.id === tgrState.activePesertaId);
+          if (act) {
+            act.partai = newPartai;
+          }
+        }
         break;
       }
       case 'TGR_SET_SISTEM_SENI': {
@@ -1797,6 +2238,17 @@ app.post('/api/action', (req, res) => {
         }
         break;
       }
+      case 'TGR_TOGGLE_TIMER': {
+        tgrState.timerActive = !tgrState.timerActive;
+        if (!tgrState.timerActive && tgrState.activePesertaId) {
+          const activeP = tgrState.pesertaList.find(p => p.id === tgrState.activePesertaId);
+          if (activeP) {
+            activeP.waktuTampil = tgrState.timerSeconds;
+            recalculateArenaTGRScores(arena);
+          }
+        }
+        break;
+      }
       case 'TGR_RESET_TIMER': {
         tgrState.timerActive = false;
         tgrState.timerSeconds = 0;
@@ -1815,13 +2267,65 @@ app.post('/api/action', (req, res) => {
       }
       case 'TGR_ADD_AUDIT_LOG': {
         tgrState.auditLogs.unshift({
-          id: Math.random().toString(36).substring(2),
+          id: `tgr_log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           timestamp: new Date().toISOString(),
           user: payload.user,
           action: payload.action
         });
         if (tgrState.auditLogs.length > 200) {
           tgrState.auditLogs.pop();
+        }
+        break;
+      }
+      case 'TGR_SET_JUMLAH_JURI': {
+        const jCount = Math.min(10, Math.max(1, parseInt(payload.jumlahJuri, 10) || 5));
+        tgrState.jumlahJuri = jCount;
+        if (masterDataState.assignments[arena.info.id]) {
+          masterDataState.assignments[arena.info.id].seniJumlahJuri = jCount;
+        }
+        if (payload.applyToAllArenas) {
+          for (const [aId, a] of Object.entries(arenasMap)) {
+            a.tgrState.jumlahJuri = jCount;
+            if (masterDataState.assignments[aId]) {
+              masterDataState.assignments[aId].seniJumlahJuri = jCount;
+            }
+            recalculateArenaTGRScores(a);
+          }
+        } else {
+          recalculateArenaTGRScores(arena);
+        }
+        break;
+      }
+      case 'RESET_DATA_TOTAL': {
+        const { scope = 'all_arenas', targetArenaId, resetType = 'all' } = payload || {};
+        performResetDataTotal({
+          scope: scope === 'single_arena' ? 'single_arena' : 'all_arenas',
+          targetArenaId: targetArenaId || reqArenaId,
+          resetType: resetType || 'all'
+        });
+        break;
+      }
+      case 'RESET_DATA_PESERTA_KONTINGEN': {
+        const { scope = 'all_arenas', targetArenaId } = payload || {};
+        performResetDataTotal({
+          scope: scope === 'single_arena' ? 'single_arena' : 'all_arenas',
+          targetArenaId: targetArenaId || reqArenaId,
+          resetType: 'peserta_kontingen'
+        });
+        break;
+      }
+      case 'TGR_RESET_ALL_PESERTA': {
+        const { scope = 'all_arenas' } = payload || {};
+        const targetArenas = scope === 'single_arena' ? [arena] : Object.values(arenasMap);
+        for (const a of targetArenas) {
+          a.tgrState.pesertaList = [];
+          a.tgrState.partaiPoolList = [];
+          a.tgrState.activePesertaId = null;
+          a.tgrState.activeVSMatch = null;
+          a.tgrState.juriCorrections = {};
+          a.tgrState.partai = 'PARTAI 1';
+          a.tgrState.sessionStatus = 'open';
+          recalculateArenaTGRScores(a);
         }
         break;
       }
@@ -1832,7 +2336,8 @@ app.post('/api/action', (req, res) => {
     // Persist all state changes to local server storage
     const isCriticalAction = [
       'START_MATCH', 'RESET_OR_NEXT_PARTAI', 'SET_BABAK', 'ADD_GELANGGANG', 'DELETE_GELANGGANG', 'BULK_DELETE_GELANGGANG',
-      'RESET_GELANGGANG', 'DEWAN_PENALTY', 'TGR_CONFIRM_PESERTA_SCORE', 'TGR_CANCEL_SCORE',
+      'RESET_GELANGGANG', 'RESET_DATA_TOTAL', 'RESET_DATA_PESERTA_KONTINGEN', 'TGR_RESET_ALL_PESERTA',
+      'TGR_SET_JUMLAH_JURI', 'DEWAN_PENALTY', 'TGR_CONFIRM_PESERTA_SCORE', 'TGR_CANCEL_SCORE',
       'TGR_ADD_PESERTA', 'TGR_DELETE_PESERTA', 'UPDATE_BAGAN_CATEGORIES', 'TRANSFER_CATEGORY_TO_ARENA',
       'LOAD_BAGAN_MATCH', 'SEKRETARIS_ADJUST_PARTAI', 'RESET_MATCH', 'TGR_RESET_SESSION'
     ].includes(type);
@@ -1876,9 +2381,7 @@ const setupStaticAndMiddleware = async () => {
   // Explicit production flag, bundled file (*.cjs), or when executed without tsx runner
   const isProduction =
     process.env.NODE_ENV === 'production' ||
-    (typeof process.argv[1] === 'string' && process.argv[1].endsWith('.cjs')) ||
-    (!process.argv.some((arg) => typeof arg === 'string' && (arg.includes('tsx') || arg.includes('vite'))) &&
-      fs.existsSync(path.join(process.cwd(), 'dist', 'index.html')));
+    (typeof process.argv[1] === 'string' && process.argv[1].endsWith('.cjs'));
 
   // Explicit PWA Endpoints with strict compliant headers
   app.get('/sw.js', (req, res) => {
@@ -1921,6 +2424,30 @@ const setupStaticAndMiddleware = async () => {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Ensure index.html is served and transformed by Vite for all client routes in dev mode
+    app.use('*', async (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      try {
+        const indexPath = path.join(process.cwd(), 'index.html');
+        if (!fs.existsSync(indexPath)) {
+          return next();
+        }
+        const rawIndex = fs.readFileSync(indexPath, 'utf-8');
+        const html = await vite.transformIndexHtml(req.originalUrl, rawIndex);
+        res.status(200).set({
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }).end(html);
+      } catch (e: any) {
+        if (vite?.ssrFixStacktrace) {
+          vite.ssrFixStacktrace(e);
+        }
+        next(e);
+      }
+    });
   } else {
     // Return standard JSON 404 for unhandled API requests
     app.all('/api/*', (req, res) => {
@@ -1929,7 +2456,18 @@ const setupStaticAndMiddleware = async () => {
 
     const distPath = path.join(process.cwd(), 'dist');
 
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        }
+      })
+    );
 
     app.get('*', async (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
@@ -1941,6 +2479,7 @@ const setupStaticAndMiddleware = async () => {
       }
 
       if (fs.existsSync(indexPath)) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.sendFile(indexPath);
       } else {
         res.status(503).send(`

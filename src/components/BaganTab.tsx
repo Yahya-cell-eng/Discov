@@ -901,11 +901,11 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
 
         {/* Categories Scroller list */}
         <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[220px] lg:max-h-none flex-1">
-          {categories.map((cat) => {
+          {categories.map((cat, catIdx) => {
             const isActive = cat.id === selectedCatId;
             return (
               <div
-                key={cat.id}
+                key={`${cat.id || cat.name}__${catIdx}`}
                 onClick={() => setSelectedCatId(cat.id)}
                 className={`p-2.5 rounded-lg border text-left cursor-pointer flex justify-between items-center gap-1 transition-all ${
                   isActive 
@@ -1624,7 +1624,7 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
                               updated[idx].merahKont = "AUTOMATIC";
                               setManageAthletesList(updated);
                             }}
-                            className="text-[8px] uppercase font-black px-1.5 py-0.5 bg-red-955/40 hover:bg-red-900/30 text-red-400 rounded border border-red-900/30 cursor-pointer"
+                            className="text-[8px] uppercase font-black px-1.5 py-0.5 bg-red-950/40 hover:bg-red-900/30 text-red-400 rounded border border-red-900/30 cursor-pointer"
                           >
                             Set BYE
                           </button>
@@ -1673,7 +1673,7 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
                               updated[idx].biruKont = "AUTOMATIC";
                               setManageAthletesList(updated);
                             }}
-                            className="text-[8px] uppercase font-black px-1.5 py-0.5 bg-blue-955/40 hover:bg-blue-900/30 text-blue-400 rounded border border-blue-900/30 cursor-pointer"
+                            className="text-[8px] uppercase font-black px-1.5 py-0.5 bg-blue-950/40 hover:bg-blue-900/30 text-blue-400 rounded border border-blue-900/30 cursor-pointer"
                           >
                             Set BYE
                           </button>
@@ -1731,7 +1731,7 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
                       setManageAthletesList(cleared);
                     }
                   }}
-                  className="px-3 py-2 bg-slate-850 hover:bg-red-955/40 hover:text-red-400 hover:border-red-900/40 border border-slate-800 text-slate-400 text-xs font-bold uppercase rounded-lg cursor-pointer transition-all"
+                  className="px-3 py-2 bg-slate-800 hover:bg-red-950/40 hover:text-red-400 hover:border-red-900/40 border border-slate-700 text-slate-400 text-xs font-bold uppercase rounded-lg cursor-pointer transition-all"
                 >
                   Bersihkan Semua
                 </button>
@@ -1739,7 +1739,7 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowManageAthletesModal(false)}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold uppercase border border-slate-700/50 rounded-lg cursor-pointer"
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase border border-slate-700/50 rounded-lg cursor-pointer"
                   >
                     Batal
                   </button>
@@ -1937,13 +1937,13 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
         )}
 
         {/* Actions overlay footer */}
-        <div className="flex gap-1 justify-between items-center mt-0.5 border-t border-slate-850 pt-2 font-mono">
+        <div className="flex gap-1 justify-between items-center mt-0.5 border-t border-slate-800 pt-2 font-mono">
           {/* Winner declaring buttons */}
           <div className="flex gap-1.5">
             <button
               onClick={() => handleMatchWinner(category.id, match.id, 'merah')}
               className={`px-2 py-1 rounded text-[9px] font-black cursor-pointer transition-all ${
-                winnerMerah ? 'bg-red-600 text-white shadow shadow-red-700/50' : 'bg-red-955/30 hover:bg-red-900/50 text-red-300 border border-red-900/40'
+                winnerMerah ? 'bg-red-600 text-white shadow shadow-red-700/50' : 'bg-red-950/40 hover:bg-red-900/50 text-red-300 border border-red-900/40'
               }`}
               title="Set Sudut Merah Menang"
             >
@@ -1952,7 +1952,7 @@ export default function BaganTab({ theme, state, dispatch, setActiveTab }: Bagan
             <button
               onClick={() => handleMatchWinner(category.id, match.id, 'biru')}
               className={`px-2 py-1 rounded text-[9px] font-black cursor-pointer transition-all ${
-                winnerBiru ? 'bg-blue-600 text-white shadow shadow-blue-700/50' : 'bg-blue-955/30 hover:bg-blue-900/50 text-blue-300 border border-blue-900/40'
+                winnerBiru ? 'bg-blue-600 text-white shadow shadow-blue-700/50' : 'bg-blue-950/40 hover:bg-blue-900/50 text-blue-300 border border-blue-900/40'
               }`}
               title="Set Sudut Biru Menang"
             >

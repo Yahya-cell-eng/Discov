@@ -340,36 +340,77 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
   const [showAutoPoolModal, setShowAutoPoolModal] = useState(false);
   const [autoPoolSize, setAutoPoolSize] = useState<number>(4);
 
+  // Normalize any stored or synced TGR athlete entries (including legacy TGRPeserta shapes using `kategori` instead of `kelas`)
+  const normalizeTGRRegistrasiAthletes = (rawList: any): TGRRegistrasiAthlete[] => {
+    if (!Array.isArray(rawList)) return [];
+    const seenIds = new Set<string>();
+    return rawList
+      .filter((item) => item && typeof item === 'object')
+      .map((item, idx) => {
+        const genderRaw = String(item.gender || 'Putra').toLowerCase();
+        const gender: 'Putra' | 'Putri' =
+          genderRaw === 'putri' || genderRaw.includes('putri') ? 'Putri' : 'Putra';
+        const kelas = String(item.kelas || item.kategori || TGR_CATEGORIES[0]).trim() || TGR_CATEGORIES[0];
+        const usia = String(item.usia || AGE_CATEGORIES[0]).trim() || AGE_CATEGORIES[0];
+        let id = String(item.id || `tgr_${Date.now()}_${idx}`);
+        if (seenIds.has(id)) {
+          id = `${id}__dup_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+        }
+        seenIds.add(id);
+        return {
+          id,
+          nama: String(item.nama || 'Atlet Seni').trim() || 'Atlet Seni',
+          kontingen: String(item.kontingen || 'Umum').trim() || 'Umum',
+          kelas,
+          usia,
+          gender,
+          pool: String(item.pool || item.poolName || 'Pool A').trim() || 'Pool A',
+          noUndian: Number(item.noUndian || item.noUrut || idx + 1) || (idx + 1),
+          ...(item.sudut ? { sudut: item.sudut } : {})
+        };
+      });
+  };
+
   // Load registered athletes from TGR specific storage
   useEffect(() => {
-    const savedAthletes = localStorage.getItem('silat_tgr_registered_athletes');
-    if (savedAthletes) {
-      try {
-        setAthletes(JSON.parse(savedAthletes));
-      } catch (e) {
-        console.error(e);
+    const loadFromStorage = () => {
+      const savedAthletes = localStorage.getItem('silat_tgr_registered_athletes');
+      if (savedAthletes) {
+        try {
+          const parsed = JSON.parse(savedAthletes);
+          const normalized = normalizeTGRRegistrasiAthletes(parsed);
+          setAthletes(normalized);
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        // Default initial mock data with pools
+        const defaultData: TGRRegistrasiAthlete[] = [
+          { id: 'tgr_1', nama: 'Bambang Pamungkas', kontingen: 'DKI Jakarta', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 1 },
+          { id: 'tgr_2', nama: 'Siti Aminah', kontingen: 'Jawa Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 2 },
+          { id: 'tgr_3', nama: 'Iko Uwais', kontingen: 'Sumatera Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 3 },
+          { id: 'tgr_4', nama: 'Yayan Ruhian', kontingen: 'Jawa Timur', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool B', noUndian: 1 },
+          { id: 'tgr_5', nama: 'Cecep Arif Rahman', kontingen: 'Jawa Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool B', noUndian: 2 }
+        ];
+        setAthletes(defaultData);
+        localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(defaultData));
       }
-    } else {
-      // Default initial mock data with pools
-      const defaultData: TGRRegistrasiAthlete[] = [
-        { id: 'tgr_1', nama: 'Bambang Pamungkas', kontingen: 'DKI Jakarta', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 1 },
-        { id: 'tgr_2', nama: 'Siti Aminah', kontingen: 'Jawa Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 2 },
-        { id: 'tgr_3', nama: 'Iko Uwais', kontingen: 'Sumatera Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool A', noUndian: 3 },
-        { id: 'tgr_4', nama: 'Yayan Ruhian', kontingen: 'Jawa Timur', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool B', noUndian: 1 },
-        { id: 'tgr_5', nama: 'Cecep Arif Rahman', kontingen: 'Jawa Barat', kelas: 'Jurus Tunggal IPSI', usia: 'Dewasa', gender: 'Putra', pool: 'Pool B', noUndian: 2 }
-      ];
-      setAthletes(defaultData);
-      localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(defaultData));
-    }
 
-    const savedSchedule = localStorage.getItem('silat_tgr_scheduled_ids');
-    if (savedSchedule) {
-      try {
-        setScheduledIds(JSON.parse(savedSchedule));
-      } catch (e) {
-        console.error(e);
+      const savedSchedule = localStorage.getItem('silat_tgr_scheduled_ids');
+      if (savedSchedule) {
+        try {
+          setScheduledIds(JSON.parse(savedSchedule));
+        } catch (e) {
+          console.error(e);
+        }
       }
-    }
+    };
+
+    loadFromStorage();
+    window.addEventListener('silat-cloud-registry-updated', loadFromStorage);
+    return () => {
+      window.removeEventListener('silat-cloud-registry-updated', loadFromStorage);
+    };
   }, []);
 
   const saveAthletesLocal = (updated: TGRRegistrasiAthlete[]) => {
@@ -410,7 +451,7 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
       setEditingAthleteId(null);
     } else {
       const newAthlete: TGRRegistrasiAthlete = {
-        id: `tgr_ath_${Date.now()}`,
+        id: `tgr_ath_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         nama: formNama.trim(),
         kontingen: formKontingen.trim(),
         kelas: formKelas,
@@ -460,17 +501,27 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
   const derivedCategoriesList = useMemo(() => {
     const uniqueGroups = new Map<string, { kelas: string; usia: string; gender: 'Putra' | 'Putri' }>();
     athletes.forEach(ath => {
-      const key = `${ath.kelas} ${ath.usia} ${ath.gender}`;
+      if (!ath) return;
+      const safeKelas = String(ath.kelas || (ath as any).kategori || TGR_CATEGORIES[0]).trim() || TGR_CATEGORIES[0];
+      const safeUsia = String(ath.usia || AGE_CATEGORIES[0]).trim() || AGE_CATEGORIES[0];
+      const safeGender: 'Putra' | 'Putri' = ath.gender === 'Putri' ? 'Putri' : 'Putra';
+      const key = `${safeKelas} ${safeUsia} ${safeGender}`;
       if (!uniqueGroups.has(key)) {
-        uniqueGroups.set(key, { kelas: ath.kelas, usia: ath.usia, gender: ath.gender });
+        uniqueGroups.set(key, { kelas: safeKelas, usia: safeUsia, gender: safeGender });
       }
     });
 
     return Array.from(uniqueGroups.entries()).map(([name, detail]) => ({
       name,
       ...detail,
-      athletesCount: athletes.filter(a => a.kelas === detail.kelas && a.usia === detail.usia && a.gender === detail.gender).length
-    })).sort((a, b) => a.kelas.localeCompare(b.kelas) || a.gender.localeCompare(b.gender));
+      athletesCount: athletes.filter(a => {
+        if (!a) return false;
+        const aKelas = String(a.kelas || (a as any).kategori || TGR_CATEGORIES[0]).trim() || TGR_CATEGORIES[0];
+        const aUsia = String(a.usia || AGE_CATEGORIES[0]).trim() || AGE_CATEGORIES[0];
+        const aGender = a.gender === 'Putri' ? 'Putri' : 'Putra';
+        return aKelas === detail.kelas && aUsia === detail.usia && aGender === detail.gender;
+      }).length
+    })).sort((a, b) => (a.kelas || '').localeCompare(b.kelas || '') || (a.gender || '').localeCompare(b.gender || ''));
   }, [athletes]);
 
   // Auto-select first category if none or invalid
@@ -801,7 +852,7 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
 
         saveScheduleLocal(merged.map(a => a.id));
         localStorage.setItem('tgr_peserta_list', JSON.stringify(payloadList));
-        localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(payloadList));
+        localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(merged));
 
         dispatch('TGR_SET_SISTEM_SENI', { sistem: sistemSeni });
         dispatch('UPDATE_TGR_PESERTA_LIST', { pesertaList: payloadList });
@@ -884,7 +935,7 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
             const cols = rows[i].split(',').map(c => c.replace(/^"|"$/g, '').trim());
             if (cols.length >= 2 && cols[0]) {
               parsed.push({
-                id: `tgr_csv_${Date.now()}_${i}`,
+                id: `tgr_csv_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
                 nama: cols[0] || `Peserta ${i}`,
                 kontingen: cols[1] || 'Umum',
                 kelas: cols[2] || TGR_CATEGORIES[0],
@@ -1401,6 +1452,38 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
                       <p className="text-xs text-slate-500 mt-0.5">Daftar seluruh atlet seni yang siap dipertandingkan.</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      {athletes.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("Apakah Anda yakin ingin MENGHAPUS SEMUA peserta seni & kontingen di seluruh panel?")) {
+                              setAthletes([]);
+                              try {
+                                localStorage.removeItem('silat_tgr_registered_athletes');
+                                localStorage.removeItem('silat_tgr_bagan_matches_map');
+                              } catch (e) {
+                                console.warn('Storage clear warning:', e);
+                              }
+                              if (dispatch) {
+                                dispatch('TGR_RESET_ALL_PESERTA', { applyToAllArenas: true });
+                              }
+                              fetch('/api/admin/reset-total', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  scope: 'all_arenas',
+                                  resetType: 'peserta_kontingen',
+                                  note: 'Reset dari TGRRegistrasiDataPanel'
+                                })
+                              }).catch(e => console.warn('Reset sync warning:', e));
+                            }
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold text-red-400 hover:text-white bg-red-950/40 hover:bg-red-900/60 border border-red-500/40 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Hapus Semua Peserta Seni
+                        </button>
+                      )}
                       <span className="px-3 py-1 bg-amber-600/20 border border-amber-500/30 text-amber-400 font-extrabold text-xs rounded-full">
                         {athletes.length} Atlet
                       </span>
@@ -1427,7 +1510,7 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
                         </thead>
                         <tbody className="divide-y divide-slate-900">
                           {athletes.map((ath, idx) => (
-                            <tr key={ath.id} className="hover:bg-slate-900/40 transition-colors">
+                            <tr key={`${ath.id}__${idx}`} className="hover:bg-slate-900/40 transition-colors">
                               <td className="py-2 px-3 font-mono font-bold text-slate-500">{idx + 1}</td>
                               <td className="py-2 px-3 font-extrabold uppercase text-slate-200">
                                 {ath.nama}
@@ -1583,14 +1666,14 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-900">
-                            {poolFilteredAthletes.map((ath) => {
+                            {poolFilteredAthletes.map((ath, idx) => {
                               const liveP = state.pesertaList.find(p => p.nama.toLowerCase() === ath.nama.toLowerCase() || p.id === ath.id);
                               const rankInPool = liveP?.rankingInPool || (liveP?.ranking);
                               const isPodium = rankInPool && rankInPool <= 3;
 
                               return (
                                 <tr 
-                                  key={ath.id} 
+                                  key={`${ath.id}__${idx}`} 
                                   className={`transition-colors ${
                                     isPodium 
                                       ? rankInPool === 1 
@@ -1833,12 +1916,12 @@ export default function TGRRegistrasiDataPanel({ theme, state, dispatch, onClose
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-900">
-                        {athletes.map((ath) => {
+                        {athletes.map((ath, athIdx) => {
                           const isChecked = scheduledIds.includes(ath.id);
                           const idx = scheduledIds.indexOf(ath.id);
                           return (
                             <tr 
-                              key={ath.id} 
+                              key={`${ath.id}__${athIdx}`} 
                               className={`h-12 transition-all ${
                                 isChecked 
                                   ? 'bg-amber-950/15' 

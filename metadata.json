@@ -1,6 +1,6 @@
 {
   "name": "Skoring Pencak Silat",
-  "description": "Sistem skoring digital real-time untuk pertandingan Pencak Silat lengkap dengan Admin Panel, manajemen jadwal dan sekretaris otomatis, serta sinkronisasi multi-gelanggang.",
+  "description": "YK Digital Scoring Pencak Silat: Sistem skoring digital real-time untuk pertandingan Tanding dan Seni IPSI dengan automated tournament bracket generator, sinkronisasi multi-gelanggang, dan panel ofisial lengkap.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

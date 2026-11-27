@@ -7,9 +7,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, Plus, Trash2, Edit2, Download, Upload, Play, Trophy, CheckSquare, Square, RefreshCw, FileText, Save, Users, X,
-  Wand2, Copy, Sparkles, CheckCircle2, FileSpreadsheet, FileUp, AlertCircle
+  Wand2, Copy, Sparkles, CheckCircle2, FileSpreadsheet, FileUp, AlertCircle, GitBranch
 } from 'lucide-react';
-import { MatchState, BaganCategory, BaganMatch, Athlete } from '../types';
+import { MatchState, BaganCategory, BaganMatch, Athlete, GelanggangInfo } from '../types';
+import AutoBracketArenaGeneratorModal from './AutoBracketArenaGeneratorModal';
 import { playBeep } from '../utils/sound';
 import safeHtml2canvas from '../utils/safeHtml2canvas';
 import { jsPDF } from 'jspdf';
@@ -39,10 +40,39 @@ interface RegistrasiDataPanelProps {
   state: MatchState;
   dispatch: (type: string, payload?: any) => Promise<any>;
   onClose: () => void;
+  arenasList?: GelanggangInfo[];
+  currentArenaId?: string;
 }
 
-export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }: RegistrasiDataPanelProps) {
+export default function RegistrasiDataPanel({
+  theme,
+  state,
+  dispatch,
+  onClose,
+  arenasList = [],
+  currentArenaId = 'arena_1'
+}: RegistrasiDataPanelProps) {
   const [activeTab, setActiveTab] = useState<'input' | 'bagan' | 'kontrol'>('input');
+  const [showAutoBracketArenaModal, setShowAutoBracketArenaModal] = useState(false);
+
+  // Fallback effective arenas list if empty
+  const effectiveArenasList: GelanggangInfo[] = React.useMemo(() => {
+    if (arenasList && arenasList.length > 0) return arenasList;
+    const saved = localStorage.getItem('silat_multi_gelanggang_list');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      { id: 'arena_1', nama: 'Gelanggang 1', kode: '1', modeAktif: 'tanding', status: 'aktif' as const },
+      { id: 'arena_2', nama: 'Gelanggang 2', kode: '2', modeAktif: 'tanding', status: 'aktif' as const },
+      { id: 'arena_3', nama: 'Gelanggang 3', kode: '3', modeAktif: 'tanding', status: 'aktif' as const }
+    ];
+  }, [arenasList]);
   
   // Registered Athletes state
   const [athletes, setAthletes] = useState<RegistrasiAthlete[]>(() => {
@@ -348,7 +378,17 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
     // Directly apply Seni to schedule and secretary if present
     if (seniPesertaList.length > 0) {
       localStorage.setItem('tgr_peserta_list', JSON.stringify(seniPesertaList));
-      localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(seniPesertaList));
+      const normalizedSeniRegistrasi = seniPesertaList.map((p, idx) => ({
+        id: p.id,
+        nama: p.nama,
+        kontingen: p.kontingen || 'Umum',
+        kelas: p.kategori || 'Tunggal',
+        usia: p.usia || 'Dewasa',
+        gender: p.gender === 'Putri' ? 'Putri' : 'Putra',
+        pool: p.poolName || (p as any).pool || 'Pool A',
+        noUndian: (p as any).noUndian || p.noUrut || idx + 1
+      }));
+      localStorage.setItem('silat_tgr_registered_athletes', JSON.stringify(normalizedSeniRegistrasi));
       await dispatch('UPDATE_TGR_PESERTA_LIST', { pesertaList: seniPesertaList });
       await dispatch('TGR_UPDATE_PESERTA', { action: 'sync_list', pesertaList: seniPesertaList });
     }
@@ -392,7 +432,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
       name,
       ...detail,
       athletesCount: athletes.filter(a => a.kelas === detail.kelas && a.usia === detail.usia && a.gender === detail.gender).length
-    })).sort((a, b) => a.name.localeCompare(b.name));
+    })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [athletes]);
 
   // Set default selected category if none selected or if selected got deleted
@@ -1247,7 +1287,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
       setEditingAthleteId(null);
     } else {
       const newAthlete: RegistrasiAthlete = {
-        id: `ath_${Date.now()}`,
+        id: `ath_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         nama: formNama.trim(),
         kontingen: formKontingen.trim(),
         kelas: formKelas,
@@ -2342,6 +2382,18 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                 }`}>
                   <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider font-mono mb-1">INTEGRASI & INPUT DATA OTOMATIS</h3>
                   
+                  {/* Automated Tournament Bracket & Multi-Arena Allocator (Venue Consistency Guarantee) */}
+                  <button
+                    onClick={() => {
+                      playBeep('click');
+                      setShowAutoBracketArenaModal(true);
+                    }}
+                    className="w-full py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.35)] cursor-pointer flex items-center justify-center gap-2 border border-emerald-400/40"
+                  >
+                    <GitBranch className="w-4 h-4 text-emerald-200" />
+                    <span>⚡ Generator Bagan & Multi-Gelanggang (Jaminan Semi & Final di Arena Sama)</span>
+                  </button>
+
                   {/* Smart Auto-Parser Trigger Button */}
                   <button
                     onClick={() => {
@@ -2404,20 +2456,37 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                 }`}>
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider font-mono">GRID DAFTAR ATLIT ({athletes.length} REGISTERED)</h3>
-                    {athletes.length > 0 && (
                       <button
                         onClick={() => {
-                          if (confirm("Apakah Anda yakin menghapus semua data atlet?")) {
+                          if (confirm("Apakah Anda yakin menghapus semua data atlet dan kontingen di seluruh panel?")) {
                             saveAthletesLocal([]);
                             rebuildBracketsFromAthletes([]);
+                            try {
+                              localStorage.removeItem('silat_registered_athletes');
+                              localStorage.removeItem('silat_bagan_categories');
+                              localStorage.removeItem('silat_bagan_data');
+                            } catch (e) {
+                              console.warn('Local storage clear warning:', e);
+                            }
+                            if (dispatch) {
+                              dispatch('RESET_DATA_PESERTA_KONTINGEN', { applyToAllArenas: true });
+                            }
+                            fetch('/api/admin/reset-total', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                scope: 'all_arenas',
+                                resetType: 'peserta_kontingen',
+                                note: 'Reset dari RegistrasiDataPanel'
+                              })
+                            }).catch(err => console.warn('Reset sync warning:', err));
                           }
                         }}
-                        className="text-[10px] font-bold text-red-500 hover:text-red-400 flex items-center gap-1.5"
+                        className="text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        Hapus Semua
+                        Hapus Semua Data Peserta & Kontingen
                       </button>
-                    )}
                   </div>
 
                   {athletes.length === 0 ? (
@@ -2446,9 +2515,9 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                             </div>
 
                             <div className="flex flex-col gap-1.5">
-                              {catAthletes.map(ath => (
+                              {catAthletes.map((ath, athIdx) => (
                                 <div 
-                                  key={ath.id}
+                                  key={`${ath.id || 'ath'}__${athIdx}`}
                                   className={`flex justify-between items-center p-2 rounded-lg text-xs ${
                                     theme === 'dark' ? 'bg-slate-900/60 hover:bg-slate-900 text-slate-200' : 'bg-white hover:bg-slate-100 text-slate-800'
                                   }`}
@@ -2507,7 +2576,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                     <div className="text-center text-xs py-10 text-slate-500">Belum ada kelas tanding terdaftar.</div>
                   ) : (
                     <div className="flex flex-col gap-2 max-h-[350px] overflow-y-auto pr-1">
-                      {categories.map(cat => {
+                      {categories.map((cat, catIdx) => {
                         // Count actual non-empty athletes in this bracket matches
                         const athletesInBracket = new Set<string>();
                         cat.matches.forEach(m => {
@@ -2521,7 +2590,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                         if (editingCategoryId === cat.id) {
                           return (
                             <div
-                              key={cat.id}
+                              key={`${cat.id || cat.name}__${catIdx}`}
                               className={`w-full rounded-xl border p-2 flex flex-col gap-2 ${
                                 theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-300'
                               }`}
@@ -2571,7 +2640,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
 
                         return (
                           <div
-                            key={cat.id}
+                            key={`${cat.id || cat.name}__${catIdx}`}
                             className={`w-full rounded-xl border transition-all flex items-center justify-between ${
                               selectedCatId === cat.name
                                 ? 'bg-emerald-600/15 border-emerald-500/80 text-emerald-400'
@@ -3223,13 +3292,13 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-850">
-                        {flatMatchesList.map(item => {
+                        {flatMatchesList.map((item, idx) => {
                           const isChecked = scheduledMatchIds.includes(item.uniqueId);
                           const scheduledIdx = scheduledMatchIds.indexOf(item.uniqueId);
                           
                           return (
                             <tr 
-                              key={item.uniqueId}
+                              key={`${item.uniqueId}__${idx}`}
                               className={`transition-colors ${
                                 isChecked 
                                   ? theme === 'dark' ? 'bg-emerald-950/10' : 'bg-emerald-50/20' 
@@ -3491,12 +3560,12 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                             return <div className="text-center text-slate-500 text-[10px] py-4">Tidak ada data atlet terdaftar</div>;
                           }
 
-                          return filteredList.map(ath => {
+                          return filteredList.map((ath, athIdx) => {
                             const isCocok = ath.gender.toLowerCase() === matchGender.toLowerCase() && 
                               (!ath.kelas || matchKelas.toLowerCase().includes(ath.kelas.toLowerCase()) || ath.kelas.toLowerCase().includes(matchKelas.toLowerCase()));
 
                             return (
-                              <div key={ath.id} className="flex justify-between items-center bg-slate-900/50 p-1.5 rounded border border-slate-800/80 hover:bg-slate-900 transition-colors">
+                              <div key={`${ath.id || 'ath'}__${athIdx}`} className="flex justify-between items-center bg-slate-900/50 p-1.5 rounded border border-slate-800/80 hover:bg-slate-900 transition-colors">
                                 <div className="flex flex-col">
                                   <span className="text-[10px] font-extrabold text-slate-200">{ath.nama}</span>
                                   <span className="text-[9px] text-slate-400 font-semibold">{ath.kontingen} • {ath.kelas} ({ath.gender})</span>
@@ -3934,7 +4003,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                 </thead>
                 <tbody className="divide-y divide-black border-b border-black">
                   {athletes.map((a, i) => (
-                    <tr key={a.id} className="h-10">
+                    <tr key={`${a.id || 'ath'}__${i}`} className="h-10">
                       <td className="border-r border-black p-1.5 text-center font-mono font-bold">{i + 1}</td>
                       <td className="border-r border-black p-1.5 font-black uppercase text-xs">{a.nama}</td>
                       <td className="border-r border-black p-1.5 text-slate-700 font-bold uppercase">{a.kontingen}</td>
@@ -4279,7 +4348,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 font-mono">
                         {smartParsedList.map((item, i) => (
-                          <tr key={item.id} className="hover:bg-slate-800/30">
+                          <tr key={`${item.id || 'smart'}__${i}`} className="hover:bg-slate-800/30">
                             <td className="py-1.5 px-3 text-center text-slate-500">{i + 1}</td>
                             <td className="py-1.5 px-3 font-bold text-white uppercase">{item.nama}</td>
                             <td className="py-1.5 px-3 text-slate-300 uppercase">{item.kontingen}</td>
@@ -4314,6 +4383,24 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
             </div>
           </motion.div>
         </div>
+      )}
+
+      {/* AUTOMATED TOURNAMENT BRACKET & MULTI-ARENA ALLOCATOR MODAL */}
+      {showAutoBracketArenaModal && (
+        <AutoBracketArenaGeneratorModal
+          isOpen={showAutoBracketArenaModal}
+          onClose={() => setShowAutoBracketArenaModal(false)}
+          theme={theme}
+          arenasList={effectiveArenasList}
+          currentArenaId={currentArenaId}
+          dispatch={dispatch}
+          onSuccessApply={(result) => {
+            if (result.tandingCategories.length > 0) {
+              updateCategories(result.tandingCategories);
+              setSelectedCatId(result.tandingCategories[0].name);
+            }
+          }}
+        />
       )}
 
     </div>
@@ -4383,7 +4470,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
             </button>
             <button 
               onClick={() => handleSetBracketWinner(category.id, match.id, 'biru')}
-              className={`px-1.5 py-0.5 rounded font-black cursor-pointer uppercase ${winnerBiru ? 'bg-blue-600 text-white' : 'bg-blue-955/20 text-blue-400 hover:bg-blue-955/40'}`}
+              className={`px-1.5 py-0.5 rounded font-black cursor-pointer uppercase ${winnerBiru ? 'bg-blue-600 text-white' : 'bg-blue-950/40 text-blue-400 hover:bg-blue-900/40'}`}
               title="Set Biru Menang"
             >
               B
@@ -4391,7 +4478,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
             {match.winner && (
               <button 
                 onClick={() => handleSetBracketWinner(category.id, match.id, null)}
-                className="px-1 text-slate-500 hover:text-slate-350 cursor-pointer"
+                className="px-1 text-slate-500 hover:text-slate-300 cursor-pointer"
                 title="Reset Pemenang"
               >
                 &larr;
@@ -4455,7 +4542,7 @@ export default function RegistrasiDataPanel({ theme, state, dispatch, onClose }:
       <div className={`w-40 p-4 rounded-xl border text-center flex flex-col items-center justify-center gap-1 relative overflow-hidden shadow-xl ${
         isMerah 
           ? 'bg-red-950/25 border-red-700/60 text-red-200' 
-          : 'bg-blue-955/25 border-blue-700/60 text-blue-200'
+          : 'bg-blue-950/40 border-blue-700/60 text-blue-200'
       }`}>
         <Trophy className="w-8 h-8 text-yellow-500 mb-1 animate-pulse" />
         <span className="text-[8px] font-black uppercase tracking-widest text-yellow-500 font-mono">JUARA KELAS</span>

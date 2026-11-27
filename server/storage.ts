@@ -73,6 +73,7 @@ export const initLocalStorage = () => {
           if (parsed.tournament) masterDataState.tournament = parsed.tournament;
           if (Array.isArray(parsed.referees)) masterDataState.referees = parsed.referees;
           if (parsed.assignments) masterDataState.assignments = parsed.assignments;
+          if (parsed.penaltyIcons) masterDataState.penaltyIcons = parsed.penaltyIcons;
           if (Array.isArray(parsed.auditLogs)) masterDataState.auditLogs = parsed.auditLogs;
           console.log(`[Storage Lokal] Master data turnamen & wasit berhasil dimuat dari ${MASTER_DATA_FILE}`);
         }

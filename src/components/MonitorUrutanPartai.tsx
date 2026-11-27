@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, RefreshCw, Volume2, VolumeX, Maximize2, Minimize2, 
   Tv, Clock, Activity, Zap, CheckCircle, Flame, Users, Hash, Shield, Search, Filter,
-  ListOrdered, Play, CheckCircle2, ChevronRight, Swords, Award
+  ListOrdered, Play, CheckCircle2, ChevronRight, Swords, Award,
+  SlidersHorizontal, Eye, EyeOff,
+  ZoomIn, ZoomOut
 } from 'lucide-react';
 import { MatchState, TGRState, MatchHistory, GelanggangInfo, BaganCategory, BaganMatch, TGRPeserta } from '../types';
 import { playBeep } from '../utils/sound';
@@ -72,6 +74,8 @@ export default function MonitorUrutanPartai({
   const [selectedArenaFilter, setSelectedArenaFilter] = useState<string>('all');
   const [queueStatusFilter, setQueueStatusFilter] = useState<'all' | 'live' | 'upcoming' | 'completed'>('all');
   const [queueSearchText, setQueueSearchText] = useState('');
+  const [showControls, setShowControls] = useState<boolean>(false);
+  const [contentScale, setContentScale] = useState<'normal' | 'large' | 'xlarge'>('normal');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -401,7 +405,7 @@ export default function MonitorUrutanPartai({
     // Sort by Arena first, then by partai number
     queue.sort((a, b) => {
       if (a.arenaId !== b.arenaId) {
-        return a.arenaId.localeCompare(b.arenaId);
+        return (a.arenaId || '').localeCompare(b.arenaId || '');
       }
       return a.partaiNum - b.partaiNum;
     });
@@ -517,8 +521,8 @@ export default function MonitorUrutanPartai({
           </div>
         </div>
 
-        {/* Center: View Style Selector */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Center: View Style Selector (Disembunyikan secara default / saat fullscreen) */}
+        <div className={`items-center gap-2 flex-wrap ${showControls && !isFullscreen ? 'flex' : 'hidden'}`}>
           {/* Display Style Selector */}
           <div className="bg-slate-900/90 p-1 rounded-xl border border-slate-800 flex items-center gap-1">
             <button
@@ -673,6 +677,55 @@ export default function MonitorUrutanPartai({
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
+          {/* Size / Scale Adjuster */}
+          <div className="flex items-center bg-slate-800 rounded-xl border border-slate-700 p-0.5">
+            <button
+              onClick={() => {
+                playBeep('click');
+                setContentScale(prev => prev === 'xlarge' ? 'large' : 'normal');
+              }}
+              className={`p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer ${
+                contentScale === 'normal' ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              title="Perkecil Ukuran Konten"
+              disabled={contentScale === 'normal'}
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-1.5 text-[10px] font-mono font-bold text-amber-400 select-none">
+              {contentScale === 'normal' ? '100%' : contentScale === 'large' ? '115%' : '130%'}
+            </span>
+            <button
+              onClick={() => {
+                playBeep('click');
+                setContentScale(prev => prev === 'normal' ? 'large' : 'xlarge');
+              }}
+              className={`p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer ${
+                contentScale === 'xlarge' ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              title="Perbesar Ukuran Konten"
+              disabled={contentScale === 'xlarge'}
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Toggle View Controls & Filter Bar */}
+          <button
+            onClick={() => {
+              playBeep('click');
+              setShowControls(prev => !prev);
+            }}
+            className={`p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+              showControls && !isFullscreen
+                ? 'bg-amber-500/20 border-amber-500/60 text-amber-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            }`}
+            title={showControls ? 'Sembunyikan Pengaturan & Filter' : 'Tampilkan Pengaturan Tampilan & Filter Gelanggang'}
+          >
+            {showControls && !isFullscreen ? <EyeOff className="w-4 h-4" /> : <SlidersHorizontal className="w-4 h-4" />}
+          </button>
+
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
@@ -696,8 +749,8 @@ export default function MonitorUrutanPartai({
         className="border-b border-slate-800"
       />
 
-      {/* Sub-header Filter Bar: Filter Gelanggang & Search */}
-      <div className="w-full px-4 py-2 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+      {/* Sub-header Filter Bar: Filter Gelanggang & Search (Disembunyikan secara default / saat fullscreen) */}
+      <div className={`w-full px-4 py-2 bg-slate-900/90 border-b border-slate-800 ${showControls && !isFullscreen ? 'flex' : 'hidden'} flex-wrap items-center justify-between gap-3 text-xs`}>
         {/* Gelanggang Filter Buttons */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] font-mono text-slate-400 uppercase font-bold mr-1">Gelanggang:</span>
@@ -799,7 +852,10 @@ export default function MonitorUrutanPartai({
       <main className="flex-1 p-3 md:p-6 flex flex-col justify-between">
         {/* VIEW A: DAFTAR URUTAN PARTAI (MATCH QUEUE LIST) FOR TANDING & SENI */}
         {displayStyle === 'urutan_partai' && (
-          <div className="space-y-4 w-full max-w-7xl mx-auto flex-1">
+          <div 
+            className="space-y-4 w-full max-w-7xl mx-auto flex-1 rounded-2xl p-4 border border-slate-700/60"
+            style={{ fontFamily: 'Verdana, sans-serif', borderStyle: 'dashed' }}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-emerald-600/30 border border-emerald-500 flex items-center justify-center text-emerald-400">
@@ -1101,7 +1157,13 @@ export default function MonitorUrutanPartai({
 
                       {/* Gigantic Match Number Label */}
                       <div className="relative w-full my-2">
-                        <div className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black font-mono tracking-tighter text-amber-400 drop-shadow-[0_6px_24px_rgba(245,158,11,0.35)] leading-none">
+                        <div className={`font-black font-mono tracking-tighter text-amber-400 drop-shadow-[0_6px_24px_rgba(245,158,11,0.35)] leading-none transition-all ${
+                          contentScale === 'xlarge'
+                            ? 'text-8xl sm:text-9xl md:text-[10rem] lg:text-[12rem]'
+                            : contentScale === 'large'
+                              ? 'text-7xl sm:text-8xl md:text-9xl lg:text-[10.5rem]'
+                              : 'text-6xl sm:text-7xl md:text-8xl lg:text-9xl'
+                        }`}>
                           {isSeniMode ? card.seniPartaiDisplay : card.tandingPartaiDisplay}
                         </div>
                       </div>
@@ -1219,7 +1281,7 @@ export default function MonitorUrutanPartai({
                     .slice(0, 6)
                     .map((item, qIdx) => (
                       <div
-                        key={item.id || qIdx}
+                        key={`${item.id || 'q'}__${qIdx}`}
                         className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="min-w-[65px] text-center">

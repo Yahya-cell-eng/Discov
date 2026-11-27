@@ -17,6 +17,7 @@ export interface RunningTournamentHeaderProps {
   logoLeft?: string | null;
   className?: string;
   speed?: number; // seconds per cycle, default 30
+  style?: React.CSSProperties;
 }
 
 export const RunningTournamentHeader: React.FC<RunningTournamentHeaderProps> = ({
@@ -29,6 +30,7 @@ export const RunningTournamentHeader: React.FC<RunningTournamentHeaderProps> = (
   logoLeft,
   className = '',
   speed = 28,
+  style,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -118,7 +120,7 @@ export const RunningTournamentHeader: React.FC<RunningTournamentHeaderProps> = (
           ? 'bg-gradient-to-r from-[#070c1a] via-[#0c152c] to-[#070c1a] border-b border-blue-950/80 text-slate-200' 
           : 'bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 border-b border-slate-300 text-slate-800'
       } ${className}`}
-      style={{ minHeight: '28px', height: '28px' }}
+      style={{ minHeight: '28px', height: '28px', ...style }}
       title={`Nama Kejuaraan: ${cleanName}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

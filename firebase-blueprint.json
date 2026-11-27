@@ -1,0 +1,473 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Registered tournament administrator record for RBAC verification",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the administrator"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "superadmin"],
+          "description": "Role assigned to this administrator"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin entry was created"
+        }
+      },
+      "required": ["uid", "role", "createdAt"]
+    },
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Non-PII public profile for authenticated tournament officials",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the official"
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Avatar photo URL"
+        },
+        "activeTournamentId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Last selected tournament ID"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document storing user email and private metadata",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254,
+          "description": "Verified email address"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Tournament": {
+      "title": "Tournament",
+      "description": "Top-level tournament configuration hosted on Google Cloud Firestore",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Tournament document identifier"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the tournament owner"
+        },
+        "namaEvent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Tournament official name"
+        },
+        "lokasi": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Tournament venue or city"
+        },
+        "penyelenggara": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Organizer name"
+        },
+        "tanggalMulai": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Start date string"
+        },
+        "tanggalSelesai": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "End date string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["id", "ownerId", "namaEvent", "createdAt", "updatedAt"]
+    },
+    "TournamentMember": {
+      "title": "TournamentMember",
+      "description": "Authorized official member of a tournament (subcollection for RBAC gate)",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the member"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "sekretaris", "dewan", "juri", "operator"],
+          "description": "Assigned role in the tournament"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Official display name"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Membership creation server timestamp"
+        }
+      },
+      "required": ["uid", "role", "displayName", "createdAt"]
+    },
+    "ArenaSyncState": {
+      "title": "ArenaSyncState",
+      "description": "Real-time Tanding & TGR/Seni match state synchronized per arena",
+      "type": "object",
+      "properties": {
+        "arenaId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Arena identifier (e.g., arena_1)"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the tournament owner"
+        },
+        "nama": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Arena display name"
+        },
+        "kode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "description": "Arena short code"
+        },
+        "keterangan": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Arena description"
+        },
+        "modeAktif": {
+          "type": "string",
+          "enum": ["tanding", "seni"],
+          "description": "Active competition mode on this arena"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["aktif", "istirahat", "selesai"],
+          "description": "Operational status of this arena"
+        },
+        "matchState": {
+          "type": "object",
+          "description": "Structured Tanding MatchState map"
+        },
+        "tgrState": {
+          "type": "object",
+          "description": "Structured TGR/Seni state map"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID of the last official who synced this arena"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["arenaId", "ownerId", "nama", "kode", "modeAktif", "status", "matchState", "tgrState", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "MatchHistoryRecord": {
+      "title": "MatchHistoryRecord",
+      "description": "Completed match result archived in Firestore",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "History record ID"
+        },
+        "arenaId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Arena where match occurred"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Tournament owner UID"
+        },
+        "partai": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Match bout number"
+        },
+        "kelas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Weight or category class"
+        },
+        "gender": {
+          "type": "string",
+          "enum": ["Putra", "Putri"],
+          "description": "Athlete gender division"
+        },
+        "atletMerah": {
+          "type": "object",
+          "description": "Red corner athlete info map"
+        },
+        "atletBiru": {
+          "type": "object",
+          "description": "Blue corner athlete info map"
+        },
+        "winner": {
+          "type": "string",
+          "description": "Winner corner or empty if draw"
+        },
+        "skorAkhirMerah": {
+          "type": "number",
+          "description": "Final score for Red corner"
+        },
+        "skorAkhirBiru": {
+          "type": "number",
+          "description": "Final score for Blue corner"
+        },
+        "tanggal": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Match completion date string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        }
+      },
+      "required": ["id", "arenaId", "ownerId", "partai", "kelas", "gender", "atletMerah", "atletBiru", "skorAkhirMerah", "skorAkhirBiru", "createdAt"]
+    },
+    "TournamentConfigDoc": {
+      "title": "TournamentConfigDoc",
+      "description": "Cloud-persisted tournament master data, referees, assignments, penalty icons, and local athlete/bagan registries",
+      "type": "object",
+      "properties": {
+        "configId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Configuration document identifier (master_data or registry_data)"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Tournament owner UID"
+        },
+        "payload": {
+          "type": "object",
+          "description": "Structured configuration map persisted in Firestore"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who last updated this configuration"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["configId", "ownerId", "payload", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "CloudBackupSnapshot": {
+      "title": "CloudBackupSnapshot",
+      "description": "Immutable timestamped tournament backup snapshot stored in Google Cloud Firestore",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Snapshot identifier"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Tournament owner UID"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Human-readable snapshot label"
+        },
+        "totalArenas": {
+          "type": "number",
+          "description": "Number of arenas included in snapshot"
+        },
+        "totalHistories": {
+          "type": "number",
+          "description": "Number of match histories included in snapshot"
+        },
+        "payload": {
+          "type": "object",
+          "description": "Structured snapshot map containing masterData, arenas, and registryData"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who created this backup snapshot"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of snapshot creation"
+        }
+      },
+      "required": ["id", "ownerId", "label", "totalArenas", "totalHistories", "payload", "createdBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Administrator registry for RBAC checks"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Public profile for signed-in tournament officials"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Private PII document isolated from public reads"
+    },
+    "/tournaments/{tournamentId}": {
+      "schema": { "$ref": "#/entities/Tournament" },
+      "description": "Top-level tournament configuration documents"
+    },
+    "/tournaments/{tournamentId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/TournamentMember" },
+      "description": "Authorized members of a tournament"
+    },
+    "/tournaments/{tournamentId}/arenas/{arenaId}": {
+      "schema": { "$ref": "#/entities/ArenaSyncState" },
+      "description": "Live Tanding and TGR/Seni match states per arena"
+    },
+    "/tournaments/{tournamentId}/histories/{historyId}": {
+      "schema": { "$ref": "#/entities/MatchHistoryRecord" },
+      "description": "Archived completed match history records"
+    },
+    "/tournaments/{tournamentId}/configs/{configId}": {
+      "schema": { "$ref": "#/entities/TournamentConfigDoc" },
+      "description": "Persisted master data, referee registry, assignments, and client athlete/bagan registries"
+    },
+    "/tournaments/{tournamentId}/backups/{backupId}": {
+      "schema": { "$ref": "#/entities/CloudBackupSnapshot" },
+      "description": "Timestamped cloud backup snapshots stored in Google Firestore"
+    }
+  }
+}

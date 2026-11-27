@@ -8,9 +8,9 @@ import dewanImg from '../assets/images/dewan_panel_1782782282395.jpg';
 import sekretarisImg from '../assets/images/sekretaris_panel_1782782300726.jpg';
 import juriImg from '../assets/images/juri_panel_1782782315779.jpg';
 import monitorImg from '../assets/images/monitor_panel_1782782330918.jpg';
+import ykLogo from '../assets/images/yk_logo.jpg';
 import RekapitulasiSkor from './RekapitulasiSkor';
 import { MatchHistory, TGRState, GelanggangInfo, ArenaSummary, MatchState } from '../types';
-import PWAInstallButton from './PWAInstallButton';
 
 interface TGRLandingPageProps {
   onSelectRole: (role: string) => void;
@@ -219,8 +219,6 @@ export default function TGRLandingPage({
             </div>
           )}
 
-          <PWAInstallButton />
-
           <button
             onClick={handleDownloadSchedule}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 cursor-pointer bg-gradient-to-r from-emerald-950/90 to-teal-950/90 hover:from-emerald-900 hover:to-teal-900 border border-emerald-500/50 text-emerald-300 text-[9.5px] uppercase tracking-wider font-mono font-black rounded-xl transition-all active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.25)]"
@@ -252,6 +250,23 @@ export default function TGRLandingPage({
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col items-center"
         >
+          {/* YK Digital Scoring Logo Badge */}
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-b from-purple-500 to-slate-900 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.35)] overflow-hidden">
+              <img
+                src={ykLogo}
+                alt="YK Digital Scoring"
+                className="w-full h-full object-contain rounded-xl bg-black"
+              />
+            </div>
+            <div className="text-left">
+              <span className="text-[9px] font-mono font-bold tracking-widest text-purple-400 uppercase">OFFICIAL SYSTEM</span>
+              <h2 className="text-lg sm:text-xl font-black tracking-wider text-white uppercase leading-none">
+                YK DIGITAL SCORING
+              </h2>
+            </div>
+          </div>
+
           <div className="relative inline-flex items-center px-10 py-1 border-t border-b border-purple-500/30 bg-[#060413]/80 rounded">
             <span className="font-mono font-black text-[10px] tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-white to-amber-400 uppercase">
               MODUL SENI / ARTISTIC
@@ -357,7 +372,7 @@ export default function TGRLandingPage({
                         handleRoleSelection(item.id);
                       }
                     }}
-                    className={`w-[290px] sm:w-[320px] md:w-[340px] shrink-0 snap-center rounded-[32px] border p-6 sm:p-7 bg-[#070716]/95 hover:bg-[#0c0c24] transition-all duration-300 flex flex-col justify-between items-center text-center cursor-pointer shadow-2xl relative group ${
+                    className={`w-[82vw] max-w-[320px] sm:w-[320px] md:w-[340px] shrink-0 snap-center rounded-[32px] border p-5 sm:p-7 bg-[#070716]/95 hover:bg-[#0c0c24] transition-all duration-300 flex flex-col justify-between items-center text-center cursor-pointer shadow-2xl relative group ${
                       item.id === 'sekretaris' 
                         ? 'border-purple-500/40 hover:border-purple-400/90 shadow-[0_0_35px_rgba(168,85,247,0.18)] hover:shadow-[0_0_45px_rgba(168,85,247,0.35)]' 
                         : item.id === 'dewan'
@@ -440,20 +455,37 @@ export default function TGRLandingPage({
             <h3 className="text-lg font-black font-sport tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-amber-500 uppercase mb-1">
               PILIH PERANGKAT JURI TGR
             </h3>
-            <p className="text-[9px] uppercase font-bold text-slate-400 mb-6 tracking-wider max-w-sm mx-auto leading-relaxed">
-              Pilih identitas Juri Seni yang bertugas di arena saat ini.
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950/60 border border-purple-500/40 text-purple-300 font-bold">
+                Juri Aktif: {tgrState?.jumlahJuri || 5} dari 10
+              </span>
+            </div>
+            <p className="text-[9px] uppercase font-bold text-slate-400 mb-5 tracking-wider max-w-sm mx-auto leading-relaxed">
+              Pilih identitas Juri Seni yang bertugas di arena saat ini. Juri 1 sampai {tgrState?.jumlahJuri || 5} bertugas aktif dalam penilaian.
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 max-w-lg mx-auto mb-6">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => handleRoleSelection(`juri${num}`)}
-                  className="py-2.5 px-1 cursor-pointer border rounded-lg font-black transition-all shadow text-[9px] font-sport uppercase tracking-wider bg-gradient-to-b from-[#0f0922] to-slate-950 hover:from-purple-950/30 hover:to-slate-950 border-purple-900/40 text-purple-400 hover:text-white hover:border-purple-400 active:scale-95"
-                >
-                  JURI {num}
-                </button>
-              ))}
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                const isActive = num <= (tgrState?.jumlahJuri || 5);
+                return (
+                  <button
+                    key={num}
+                    onClick={() => handleRoleSelection(`juri${num}`)}
+                    className={`relative py-3 px-1 cursor-pointer border rounded-xl font-black transition-all shadow text-[9px] font-sport uppercase tracking-wider flex flex-col items-center justify-center gap-0.5 active:scale-95 ${
+                      isActive
+                        ? 'bg-gradient-to-b from-purple-950/70 via-purple-900/40 to-slate-950 border-purple-500/70 text-purple-200 hover:text-white hover:border-purple-300 hover:shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                        : 'bg-slate-950/60 border-slate-800/80 text-slate-500 hover:text-slate-400 hover:border-slate-700 opacity-65'
+                    }`}
+                  >
+                    <span className="font-bold">JURI {num}</span>
+                    <span className={`text-[7.5px] font-mono px-1 py-0.2 rounded font-black ${
+                      isActive ? 'bg-purple-500/30 text-purple-300' : 'bg-slate-900 text-slate-600'
+                    }`}>
+                      {isActive ? 'AKTIF' : 'STANDBY'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <button
@@ -461,7 +493,7 @@ export default function TGRLandingPage({
                 playBeep('click');
                 setSelectedJuriGroup(false);
               }}
-              className="text-[9px] font-bold font-mono tracking-widest uppercase text-slate-500 hover:text-slate-350 underline cursor-pointer transition-colors"
+              className="text-[9px] font-bold font-mono tracking-widest uppercase text-slate-500 hover:text-slate-300 underline cursor-pointer transition-colors"
             >
               Kembali ke Peran Seni
             </button>

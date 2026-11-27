@@ -203,7 +203,8 @@
       },
       "shift": "Sesi 1 (Pagi - Siang)",
       "status": "bertugas",
-      "catatan": "Matras Utama Partai Perebutan Medali"
+      "catatan": "Matras Utama Partai Perebutan Medali",
+      "seniJumlahJuri": 6
     },
     "arena_2": {
       "arenaId": "arena_2",
@@ -250,7 +251,36 @@
       "catatan": "Arena Khusus Seni Tunggal, Ganda, Regu & Solo Kreatif"
     }
   },
+  "penaltyIcons": {
+    "slot1": "fist",
+    "slot2": "pointing",
+    "slot3": "peace",
+    "slot4": "hand",
+    "slot5": "kick_t",
+    "slot6": "kick_sabit"
+  },
   "auditLogs": [
+    {
+      "id": "log_1793490390158_zm1o",
+      "timestamp": "2026-10-31T23:46:30.158Z",
+      "admin": "admin",
+      "action": "RESET_DATA_TOTAL",
+      "details": "Administrator System Administrator PB IPSI melakukan Reset Total (Komplit & Riwayat) pada Semua Gelanggang. Catatan: Tes Reset Total"
+    },
+    {
+      "id": "log_1793490390138_7j06",
+      "timestamp": "2026-10-31T23:46:30.138Z",
+      "admin": "admin",
+      "action": "LOGIN_SUKSES",
+      "details": "Administrator System Administrator PB IPSI berhasil login ke AdminPanel."
+    },
+    {
+      "id": "log_1793490378744_oelq",
+      "timestamp": "2026-10-31T23:46:18.744Z",
+      "admin": "admin",
+      "action": "LOGIN_SUKSES",
+      "details": "Administrator System Administrator PB IPSI berhasil login ke AdminPanel."
+    },
     {
       "id": "log_init_01",
       "timestamp": "2026-09-14T22:18:30.294Z",

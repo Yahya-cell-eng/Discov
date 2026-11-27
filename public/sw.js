@@ -1,7 +1,7 @@
-// Service Worker for offline support & app install
-const CACHE_NAME = 'skoring-silat-v2';
-const ASSETS_TO_CACHE = [
-  '/',
+// Service Worker for offline support & PWA installability
+const CACHE_NAME = 'skoring-silat-v6-domain';
+
+const ICONS_TO_CACHE = [
   '/manifest.json',
   '/icons/icon.svg',
   '/icons/icon-192.png',
@@ -14,24 +14,22 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      for (const url of ASSETS_TO_CACHE) {
-        try {
-          await cache.add(url);
-        } catch (err) {
-          console.warn('[SW] Caching asset skipped/failed:', url, err);
-        }
-      }
+    caches.open(CACHE_NAME).then((cache) => {
+      return Promise.allSettled(
+        ICONS_TO_CACHE.map((url) => cache.add(url))
+      );
     })
   );
 });
 
+// Immediately clear any legacy or corrupted cache chunks to prevent React version mismatch
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[SW] Menghapus cache lama:', key);
             return caches.delete(key);
           }
         })
@@ -41,12 +39,32 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Never intercept or cache API routes, WebSocket, or non-GET requests
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+  const url = event.request.url;
+
+  // Never intercept cross-origin requests (Google OAuth, Google Drive API, Firebase Auth, Google Fonts)
+  if (!url.startsWith(self.location.origin)) {
     return;
   }
 
-  // Navigation requests: Network first, fall back to cached '/'
+  // NEVER intercept or cache development scripts, modules, Vite bundles, HMR, or API calls
+  // This guarantees that React and React-DOM always come fresh from the server and never mismatch
+  if (
+    event.request.method !== 'GET' ||
+    url.includes('/api/') ||
+    url.includes('/node_modules/') ||
+    url.includes('/@') ||
+    url.includes('/src/') ||
+    url.includes('?v=') ||
+    url.includes('.vite') ||
+    url.endsWith('.js') ||
+    url.endsWith('.ts') ||
+    url.endsWith('.tsx') ||
+    url.endsWith('.css')
+  ) {
+    return;
+  }
+
+  // For navigation requests: Network first
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -56,28 +74,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: Cache first, fall back to network
+  // For static branding icons: Network first, fall back to cached icon
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (
-          networkResponse &&
-          networkResponse.status === 200 &&
-          (event.request.url.includes('/assets/') ||
-           event.request.url.includes('/icons/') ||
-           event.request.url.includes('apple-touch-icon'))
-        ) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      });
+    fetch(event.request).catch(() => {
+      return caches.match(event.request);
     })
   );
 });
-

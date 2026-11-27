@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { TGRState, TGRPeserta } from '../types';
 import { playBeep } from '../utils/sound';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, ShieldCheck, ArrowLeft, Lock, Unlock, AlertTriangle, Users, Trash2, CheckCircle2, History, Scale, Plus, Minus, FileSpreadsheet, LockKeyhole, Maximize2, Minimize2 } from 'lucide-react';
+import { Shield, ShieldCheck, ArrowLeft, Lock, Unlock, AlertTriangle, Users, Trash2, CheckCircle2, History, Scale, Plus, Minus, FileSpreadsheet, LockKeyhole, Maximize2, Minimize2, BarChart3, Play, Pause, RefreshCw, Timer } from 'lucide-react';
+import TGRJuriScoreDistributionChart from './TGRJuriScoreDistributionChart';
 
 export const DEWAN_DEDUCTION_REASONS = [
   { id: '1', label: '(1) Penampilan melebihi/kekurangan toleransi waktu >5 detik s/d 10 detik' },
@@ -23,6 +24,7 @@ interface TGRDewanPanelProps {
 
 export default function TGRDewanPanel({ state, dispatch, onBack, theme }: TGRDewanPanelProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showDistributionModal, setShowDistributionModal] = useState(false);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -321,30 +323,84 @@ export default function TGRDewanPanel({ state, dispatch, onBack, theme }: TGRDew
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const toggleTimer = async () => {
+    playBeep('click');
+    if (state.timerActive) {
+      await dispatch('TGR_PAUSE_TIMER');
+    } else {
+      await dispatch('TGR_START_TIMER');
+    }
+  };
+
+  // Shortcut Tombol SPASI untuk Mulai / Jeda Timer Seni (TGR)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        const target = e.target as HTMLElement;
+        const tagName = target?.tagName?.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        toggleTimer();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.timerActive]);
+
   return (
     <div className="min-h-screen w-full flex flex-col bg-[#050202] text-slate-100 font-sans select-none overflow-y-auto lg:overflow-hidden">
       <div className="absolute top-0 right-1/4 w-[28rem] h-[28rem] rounded-full blur-[150px] pointer-events-none bg-red-950/15" />
 
       {/* Header Panel */}
-      <header className="bg-slate-950 border-b border-amber-500/20 px-4 py-3 flex items-center justify-between shadow-md z-15">
-        <div className="flex items-center gap-3">
+      <header className="bg-slate-950 border-b border-amber-500/20 px-2.5 py-2 sm:px-4 sm:py-2.5 flex items-center justify-between shadow-md z-15 flex-wrap gap-2">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={onBack}
-            className="p-2 cursor-pointer rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-colors"
+            className="p-1.5 sm:p-2 cursor-pointer rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-colors"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
           <div>
-            <h1 className="text-sm font-black font-sport tracking-widest text-amber-500 uppercase">
-              DEWAN JURI PANEL (TGR MODE)
+            <h1 className="text-xs sm:text-sm font-black font-sport tracking-widest text-amber-500 uppercase truncate max-w-[180px] sm:max-w-none">
+              DEWAN JURI PANEL (TGR)
             </h1>
-            <p className="text-[10px] font-mono tracking-wider text-slate-400">
+            <p className="text-[9px] sm:text-[10px] font-mono tracking-wider text-slate-400">
               PENGENDALI UTAMA KEPUTUSAN & ATURAN IPSI
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Center Live Arena Performance Timer with Spacebar Controller */}
+        <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-2.5 sm:px-3 py-1 shadow-inner">
+          <Timer className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${state.timerActive ? 'text-emerald-400 animate-spin' : 'text-slate-400'}`} />
+          <div className="text-right">
+            <div className="text-[8px] sm:text-[9px] font-mono font-bold tracking-wider text-slate-400 uppercase leading-none">
+              WAKTU SENI
+            </div>
+            <div className="text-base sm:text-xl font-mono font-black text-emerald-400 tracking-wider leading-none mt-0.5">
+              {formatTime(state.timerSeconds)}
+            </div>
+          </div>
+          <button
+            onClick={toggleTimer}
+            title="Klik atau tekan Tombol Spasi (Space) untuk Mulai / Jeda Timer Seni"
+            className={`ml-1 sm:ml-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-black font-sport uppercase tracking-wider flex items-center gap-1 sm:gap-1.5 cursor-pointer transition-all active:scale-95 shadow ${
+              state.timerActive
+                ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            }`}
+          >
+            {state.timerActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            <span>{state.timerActive ? 'JEDA' : 'MULAI'}</span>
+            <span className="hidden sm:inline text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-black/35 text-white/90 border border-white/20">
+              SPASI
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             onClick={toggleFullscreen}
             className="p-1.5 cursor-pointer rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all"
@@ -353,24 +409,24 @@ export default function TGRDewanPanel({ state, dispatch, onBack, theme }: TGRDew
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
           
-          <div className="flex items-center gap-2">
-            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase font-mono border ${
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className={`px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase font-mono border ${
               state.sistemSeni === 'prestasi'
                 ? 'bg-purple-950/50 border-purple-800/80 text-purple-300'
                 : 'bg-amber-950/50 border-amber-800/80 text-amber-300'
             }`}>
-              {state.sistemSeni === 'prestasi' ? '⚔️ SISTEM PRESTASI' : '🏊 SISTEM POOL'}
+              {state.sistemSeni === 'prestasi' ? '⚔️ PRESTASI' : '🏊 POOL'}
             </span>
-            <div className="px-3.5 py-1.5 rounded-full bg-red-950/40 border border-red-500/30 text-red-400 font-black font-sport text-xs tracking-wider uppercase flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 text-red-500" />
-              <span>DEWAN AUTHENTICATED</span>
+            <div className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-red-950/40 border border-red-500/30 text-red-400 font-black font-sport text-[10px] sm:text-xs tracking-wider uppercase flex items-center gap-1 sm:gap-2">
+              <Shield className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-500" />
+              <span>DEWAN</span>
             </div>
           </div>
         </div>
       </header>
 
       {/* Main Grid View */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 p-4 gap-4 overflow-y-auto lg:overflow-hidden z-10">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 p-2 sm:p-4 gap-3 sm:gap-4 overflow-y-auto lg:overflow-hidden z-10">
         
         {/* Left Column (4/12): Participants List (Ordered by No. Urut) */}
         <section className="lg:col-span-5 flex flex-col gap-4 lg:overflow-hidden">
@@ -710,15 +766,27 @@ export default function TGRDewanPanel({ state, dispatch, onBack, theme }: TGRDew
               </div>
 
               {/* Final Score Dashboard banner */}
-              <div className="mt-4 p-4 rounded-xl border border-amber-500/20 bg-gradient-to-r from-red-950/30 via-[#1e1302] to-red-950/30 text-center relative overflow-hidden">
+              <div className="mt-4 p-4 rounded-xl border border-amber-500/20 bg-gradient-to-r from-red-950/30 via-[#1e1302] to-red-950/30 text-center relative overflow-hidden space-y-2">
                 <div className="text-[10px] font-black text-slate-400 tracking-widest font-mono uppercase">
                   NILAI AKHIR SAH (FINAL SCORE)
                 </div>
                 <div className="text-4xl font-black font-sport text-amber-500 tracking-wider mt-1">
                   {activePeserta.finalScore !== undefined ? activePeserta.finalScore.toFixed(3) : 'BELUM LENGKAP'}
                 </div>
-                <div className="text-[8.5px] font-mono uppercase text-slate-500 mt-1">
+                <div className="text-[8.5px] font-mono uppercase text-slate-500">
                   DIHITUNG BERDASARKAN MEDIAN | PENGURANGAN DEWAN: -{activePeserta.deductions.toFixed(3)}
+                </div>
+
+                {/* Recharts Jury Distribution Chart Trigger */}
+                <div className="pt-2 flex justify-center">
+                  <button
+                    onClick={() => setShowDistributionModal(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-cyan-950/50 hover:bg-cyan-900/70 border border-cyan-500/50 text-cyan-300 font-black text-[11px] font-sport uppercase tracking-wider cursor-pointer transition-all shadow-md active:scale-95"
+                    title="Buka grafik distribusi nilai dari setiap juri seni (Recharts)"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Grafik Distribusi Nilai Juri (Recharts)</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -732,6 +800,17 @@ export default function TGRDewanPanel({ state, dispatch, onBack, theme }: TGRDew
         </section>
 
       </main>
+
+      {/* Recharts Jury Score Distribution Modal Overlay */}
+      {showDistributionModal && activePeserta && (
+        <TGRJuriScoreDistributionChart
+          peserta={activePeserta}
+          jumlahJuri={state.jumlahJuri}
+          showModalOverlay={true}
+          title={`EVALUASI DEWAN: DISTRIBUSI NILAI JURI - ${activePeserta.nama.toUpperCase()}`}
+          onClose={() => setShowDistributionModal(false)}
+        />
+      )}
 
       {/* Footer Audit Logs ticker */}
       <footer className="bg-slate-950 border-t border-slate-900 px-4 py-2 flex items-center justify-between text-[8px] font-mono tracking-widest text-slate-600 uppercase">

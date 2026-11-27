@@ -17,14 +17,27 @@ export interface PenaltyIconProps {
  * Desain berwarna penuh (full color illustration) dengan detail ruas jari, kuku, jempol, dan lengan baju wasit putih.
  */
 export const Binaan1Icon: React.FC<PenaltyIconProps> = ({
+  active = false,
+  side = 'biru',
   className = 'w-7 h-7'
-}) => (
-  <div className="flex items-center justify-center">
-    <svg
-      viewBox="0 0 36 36"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
+}) => {
+  const filterStyle = !active 
+    ? (side === 'biru' ? 'hue-rotate(185deg) saturate(1.8) brightness(1.1)' : 'hue-rotate(330deg) saturate(2.0) brightness(1.05)')
+    : 'drop-shadow(0 0 6px #f59e0b)';
+
+  return (
+    <div 
+      className="flex items-center justify-center transition-all"
+      style={{ 
+        filter: filterStyle,
+        transform: side === 'merah' ? 'scaleX(-1)' : undefined 
+      }}
     >
+      <svg
+        viewBox="0 0 36 36"
+        className={className}
+        xmlns="http://www.w3.org/2000/svg"
+      >
       <defs>
         {/* Gradasi warna kulit natural tangan */}
         <linearGradient id="skinGradB1" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -84,7 +97,8 @@ export const Binaan1Icon: React.FC<PenaltyIconProps> = ({
       <rect x="10.5" y="22.5" width="7.5" height="2.5" rx="1.25" fill="#b45309" stroke="#78350f" strokeWidth="0.8" />
     </svg>
   </div>
-);
+  );
+};
 
 /**
  * BINAAN 2 Icon (Bukan siluet - Ilustrasi tangan realistis 2 JARI KE SAMPING 👉👉):
@@ -93,14 +107,27 @@ export const Binaan1Icon: React.FC<PenaltyIconProps> = ({
  * jempol terlipat, serta lengan baju wasit.
  */
 export const Binaan2Icon: React.FC<PenaltyIconProps> = ({
+  active = false,
+  side = 'biru',
   className = 'w-7 h-7'
-}) => (
-  <div className="flex items-center justify-center">
-    <svg
-      viewBox="0 0 36 36"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
+}) => {
+  const filterStyle = !active 
+    ? (side === 'biru' ? 'hue-rotate(185deg) saturate(1.8) brightness(1.1)' : 'hue-rotate(330deg) saturate(2.0) brightness(1.05)')
+    : 'drop-shadow(0 0 6px #f59e0b)';
+
+  return (
+    <div 
+      className="flex items-center justify-center transition-all"
+      style={{ 
+        filter: filterStyle,
+        transform: side === 'merah' ? 'scaleX(-1)' : undefined 
+      }}
     >
+      <svg
+        viewBox="0 0 36 36"
+        className={className}
+        xmlns="http://www.w3.org/2000/svg"
+      >
       <defs>
         <linearGradient id="skinGradB2" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#fde047" />
@@ -177,7 +204,8 @@ export const Binaan2Icon: React.FC<PenaltyIconProps> = ({
       <rect x="9.5" y="24.4" width="7" height="2.4" rx="1.2" fill="#b45309" stroke="#78350f" strokeWidth="0.8" />
     </svg>
   </div>
-);
+  );
+};
 
 /**
  * TEGURAN 1 Icon (Bukan siluet - Ilustrasi tangan realistis 1 jari tegak ke atas ☝️):
@@ -185,14 +213,24 @@ export const Binaan2Icon: React.FC<PenaltyIconProps> = ({
  * Penuh detail berwarna natural.
  */
 export const Teguran1Icon: React.FC<PenaltyIconProps> = ({
+  active = false,
+  side = 'biru',
   className = 'w-7 h-7'
-}) => (
-  <div className="flex items-center justify-center">
-    <svg
-      viewBox="0 0 36 36"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
+}) => {
+  const filterStyle = !active 
+    ? (side === 'biru' ? 'hue-rotate(185deg) saturate(1.8) brightness(1.1)' : 'hue-rotate(330deg) saturate(2.0) brightness(1.05)')
+    : 'drop-shadow(0 0 6px #f59e0b)';
+
+  return (
+    <div 
+      className="flex items-center justify-center transition-all"
+      style={{ filter: filterStyle }}
     >
+      <svg
+        viewBox="0 0 36 36"
+        className={className}
+        xmlns="http://www.w3.org/2000/svg"
+      >
       <defs>
         <linearGradient id="skinGradT1" x1="0%" y1="100%" x2="0%" y2="0%">
           <stop offset="0%" stopColor="#d97706" />
@@ -250,7 +288,8 @@ export const Teguran1Icon: React.FC<PenaltyIconProps> = ({
       />
     </svg>
   </div>
-);
+  );
+};
 
 /**
  * TEGURAN 2 Icon (Bukan siluet - Ilustrasi tangan 2 jari tegak V sign ✌️):
@@ -258,14 +297,24 @@ export const Teguran1Icon: React.FC<PenaltyIconProps> = ({
  * Detail kuku, celah antar jari, warna kulit bergradasi, dan kemeja wasit.
  */
 export const Teguran2Icon: React.FC<PenaltyIconProps> = ({
+  active = false,
+  side = 'biru',
   className = 'w-7 h-7'
-}) => (
-  <div className="flex items-center justify-center">
-    <svg
-      viewBox="0 0 36 36"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
+}) => {
+  const filterStyle = !active 
+    ? (side === 'biru' ? 'hue-rotate(185deg) saturate(1.8) brightness(1.1)' : 'hue-rotate(330deg) saturate(2.0) brightness(1.05)')
+    : 'drop-shadow(0 0 6px #f59e0b)';
+
+  return (
+    <div 
+      className="flex items-center justify-center transition-all"
+      style={{ filter: filterStyle }}
     >
+      <svg
+        viewBox="0 0 36 36"
+        className={className}
+        xmlns="http://www.w3.org/2000/svg"
+      >
       <defs>
         <linearGradient id="skinGradT2" x1="0%" y1="100%" x2="0%" y2="0%">
           <stop offset="0%" stopColor="#d97706" />
@@ -332,7 +381,8 @@ export const Teguran2Icon: React.FC<PenaltyIconProps> = ({
       />
     </svg>
   </div>
-);
+  );
+};
 
 /**
  * PERINGATAN 1 Icon (Bukan siluet - Lencana medali 3D warna resmi):

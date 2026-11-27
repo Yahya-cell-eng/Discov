@@ -632,11 +632,11 @@ export function calculateContingentMedals({
   let records = Object.values(contingentMap);
 
   if (sortBy === 'points') {
-    records.sort((a, b) => b.points - a.points || b.gold - a.gold || b.silver - a.silver || b.bronze - a.bronze || b.totalAtlet - a.totalAtlet || a.kontingen.localeCompare(b.kontingen));
+    records.sort((a, b) => b.points - a.points || b.gold - a.gold || b.silver - a.silver || b.bronze - a.bronze || b.totalAtlet - a.totalAtlet || (a.kontingen || '').localeCompare(b.kontingen || ''));
   } else if (sortBy === 'name') {
-    records.sort((a, b) => a.kontingen.localeCompare(b.kontingen));
+    records.sort((a, b) => (a.kontingen || '').localeCompare(b.kontingen || ''));
   } else if (sortBy === 'athletes') {
-    records.sort((a, b) => b.totalAtlet - a.totalAtlet || b.gold - a.gold || b.points - a.points || a.kontingen.localeCompare(b.kontingen));
+    records.sort((a, b) => b.totalAtlet - a.totalAtlet || b.gold - a.gold || b.points - a.points || (a.kontingen || '').localeCompare(b.kontingen || ''));
   } else {
     // Default: 'medals' (Gold -> Silver -> Bronze -> Total -> Points -> Total Athletes -> Alphabetical)
     records.sort((a, b) => 
@@ -646,7 +646,7 @@ export function calculateContingentMedals({
       b.total - a.total || 
       b.points - a.points || 
       b.totalAtlet - a.totalAtlet || 
-      a.kontingen.localeCompare(b.kontingen)
+      (a.kontingen || '').localeCompare(b.kontingen || '')
     );
   }
 
