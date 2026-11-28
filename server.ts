@@ -241,8 +241,33 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-const PRIMARY_CUSTOM_DOMAIN = (process.env.CUSTOM_DOMAIN || 'ykdigital.my.id').trim().toLowerCase();
+const resolvePrimaryCustomDomain = (): string => {
+  if (process.env.CUSTOM_DOMAIN && process.env.CUSTOM_DOMAIN.trim()) {
+    return process.env.CUSTOM_DOMAIN.trim().toLowerCase();
+  }
+  const cnameCandidates = [
+    path.join(process.cwd(), 'CNAME'),
+    path.join(process.cwd(), 'public', 'CNAME')
+  ];
+  for (const cnamePath of cnameCandidates) {
+    try {
+      if (fs.existsSync(cnamePath)) {
+        const content = fs.readFileSync(cnamePath, 'utf-8').trim().toLowerCase();
+        if (content) return content;
+      }
+    } catch {
+      // ignore read failure
+    }
+  }
+  return 'ykdigital.my.id';
+};
+
+const PRIMARY_CUSTOM_DOMAIN = resolvePrimaryCustomDomain();
 const PRIMARY_CUSTOM_ORIGIN = `https://${PRIMARY_CUSTOM_DOMAIN}`;
+
+app.get('/CNAME', (_req, res) => {
+  res.type('text/plain').send(`${PRIMARY_CUSTOM_DOMAIN}\n`);
+});
 
 // Health check endpoint for reverse proxies, uptime monitors, and custom domain routing
 app.get('/api/health', (req, res) => {
