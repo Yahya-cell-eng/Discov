@@ -6,6 +6,13 @@
 import { MatchState, TGRState, GelanggangInfo } from '../types';
 
 export const SERVER_HOST_STORAGE_KEY = 'silat_server_host_url';
+export const PRIMARY_CUSTOM_DOMAIN = 'ykdigital.my.id';
+export const PRIMARY_CUSTOM_ORIGIN = `https://${PRIMARY_CUSTOM_DOMAIN}`;
+
+export function isRegisteredCustomDomain(hostname: string): boolean {
+  const clean = (hostname || '').trim().toLowerCase();
+  return clean === PRIMARY_CUSTOM_DOMAIN || clean === `www.${PRIMARY_CUSTOM_DOMAIN}`;
+}
 
 /**
  * Normalize a host/domain/IP string into a full HTTP/HTTPS origin.
@@ -36,15 +43,20 @@ export function normalizeServerUrlInput(raw: string): string {
 }
 
 /**
- * Return the active public origin (either explicit custom server or current browser domain).
+ * Return the active public origin (either explicit custom server, current browser domain, or primary custom domain).
  */
 export function getPublicAppOrigin(): string {
   const configured = getServerBaseUrl();
   if (configured) return configured;
-  if (typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null') {
+  if (
+    typeof window !== 'undefined' &&
+    window.location.origin &&
+    window.location.origin !== 'null' &&
+    window.location.protocol !== 'file:'
+  ) {
     return window.location.origin;
   }
-  return '';
+  return PRIMARY_CUSTOM_ORIGIN;
 }
 
 /**

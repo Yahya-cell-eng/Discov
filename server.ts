@@ -241,14 +241,21 @@ app.get('/api/events', (req, res) => {
   });
 });
 
+const PRIMARY_CUSTOM_DOMAIN = (process.env.CUSTOM_DOMAIN || 'ykdigital.my.id').trim().toLowerCase();
+const PRIMARY_CUSTOM_ORIGIN = `https://${PRIMARY_CUSTOM_DOMAIN}`;
+
 // Health check endpoint for reverse proxies, uptime monitors, and custom domain routing
 app.get('/api/health', (req, res) => {
+  const reqHost = (req.hostname || '').toLowerCase();
   res.json({
     ok: true,
     status: 'healthy',
     service: 'skoring-pencak-silat',
     host: req.hostname,
     protocol: req.protocol,
+    customDomain: PRIMARY_CUSTOM_DOMAIN,
+    customOrigin: PRIMARY_CUSTOM_ORIGIN,
+    isCustomDomainRequest: reqHost === PRIMARY_CUSTOM_DOMAIN || reqHost === `www.${PRIMARY_CUSTOM_DOMAIN}`,
     uptimeSeconds: Math.floor(process.uptime()),
     sseClients: sseClients.length,
     timestamp: new Date().toISOString()

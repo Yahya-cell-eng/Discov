@@ -15,6 +15,7 @@ import {
   Image as ImageIcon, Trophy, Sparkles, BarChart3, ListOrdered, Search
 } from 'lucide-react';
 import TGRJuriScoreDistributionChart from './TGRJuriScoreDistributionChart';
+import { getPublicAppOrigin } from '../utils/defaultClientState';
 
 interface TGRSekretarisPanelProps {
   state: TGRState;
@@ -2216,7 +2217,8 @@ export default function TGRSekretarisPanel({ state, dispatch, onBack, theme, onT
                   { id: 'dewan', label: 'DEWAN TGR', color: 'border-rose-500/40 bg-rose-950/10 text-rose-400' },
                   { id: 'monitor', label: 'LAYAR MONITOR DISPLAY', color: 'border-teal-500/40 bg-teal-950/10 text-teal-400' },
                 ].map((item) => {
-                  const url = `${window.location.origin}${window.location.pathname}?mode=seni&role=${item.id}`;
+                  const baseOrigin = getPublicAppOrigin() || window.location.origin;
+                  const url = `${baseOrigin}${window.location.pathname}?mode=seni&role=${item.id}`;
                   
                   return (
                     <div 

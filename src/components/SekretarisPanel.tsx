@@ -27,6 +27,7 @@ import RegistrasiDataPanel from './RegistrasiDataPanel';
 import ThemePaletteSelector from './ThemePaletteSelector';
 import SekretarisSeniMultiPesertaPanel from './SekretarisSeniMultiPesertaPanel';
 import { TGRState } from '../types';
+import { getPublicAppOrigin } from '../utils/defaultClientState';
 
 interface SekretarisPanelProps {
   state: MatchState;
@@ -1768,7 +1769,8 @@ export default function SekretarisPanel({ state, tgrState, histories, dispatch, 
                   { id: 'monitor', label: 'LAYAR MONITOR', color: 'border-blue-500/40 bg-blue-950/10 text-blue-400' },
                   { id: 'sekretaris', label: 'SEKRETARIS', color: 'border-rose-500/40 bg-rose-950/10 text-rose-400' },
                 ].map((item) => {
-                  const url = `${window.location.origin}${window.location.pathname}?role=${item.id}`;
+                  const baseOrigin = getPublicAppOrigin() || window.location.origin;
+                  const url = `${baseOrigin}${window.location.pathname}?role=${item.id}`;
                   
                   return (
                     <div 

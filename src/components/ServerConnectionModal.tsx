@@ -25,7 +25,14 @@ import {
   Globe,
   Copy
 } from 'lucide-react';
-import { getServerBaseUrl, setServerBaseUrl, normalizeServerUrlInput } from '../utils/defaultClientState';
+import {
+  getServerBaseUrl,
+  setServerBaseUrl,
+  normalizeServerUrlInput,
+  PRIMARY_CUSTOM_DOMAIN,
+  PRIMARY_CUSTOM_ORIGIN,
+  isRegisteredCustomDomain
+} from '../utils/defaultClientState';
 import GoogleDriveStoragePanel, { GoogleDriveStorageProps } from './GoogleDriveStoragePanel';
 
 interface ServerConnectionModalProps extends GoogleDriveStorageProps {
@@ -94,10 +101,12 @@ export default function ServerConnectionModal({
   const [googleBusy, setGoogleBusy] = useState<boolean>(false);
   const [localGoogleMsg, setLocalGoogleMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [domainCopied, setDomainCopied] = useState<boolean>(false);
+  const [primaryCopied, setPrimaryCopied] = useState<boolean>(false);
 
   const activeOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const activeHostname = typeof window !== 'undefined' ? window.location.hostname : '';
   const isHttpsDomain = typeof window !== 'undefined' ? window.location.protocol === 'https:' : false;
+  const isPrimaryCustomActive = isRegisteredCustomDomain(activeHostname);
   const isLocalHost =
     activeHostname === 'localhost' ||
     activeHostname === '127.0.0.1' ||
@@ -109,6 +118,14 @@ export default function ServerConnectionModal({
     navigator.clipboard.writeText(activeHostname).then(() => {
       setDomainCopied(true);
       setTimeout(() => setDomainCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  const handleCopyPrimaryDomain = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(PRIMARY_CUSTOM_DOMAIN).then(() => {
+      setPrimaryCopied(true);
+      setTimeout(() => setPrimaryCopied(false), 2000);
     }).catch(() => {});
   };
 
@@ -301,12 +318,17 @@ export default function ServerConnectionModal({
 
           {/* Domain & HTTPS Readiness Bar */}
           {activeOrigin && (
-            <div className="mb-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-1.5 text-[11px]">
+            <div className="mb-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2 text-[11px]">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
                   <Globe className={`w-3.5 h-3.5 shrink-0 ${isHttpsDomain ? 'text-emerald-400' : 'text-amber-400'}`} />
-                  <span className="font-bold text-slate-300">Domain Aktif:</span>
-                  <span className="font-mono text-cyan-300 truncate">{activeHostname || activeOrigin}</span>
+                  <span className="font-bold text-slate-300">Domain Utama:</span>
+                  <span className="font-mono text-emerald-300 font-bold">{PRIMARY_CUSTOM_DOMAIN}</span>
+                  {isPrimaryCustomActive && (
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold">
+                      Aktif Sekarang
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <span
@@ -318,23 +340,40 @@ export default function ServerConnectionModal({
                   >
                     {isHttpsDomain ? 'HTTPS Siap' : 'HTTP Lokal'}
                   </span>
-                  {activeHostname && (
-                    <button
-                      type="button"
-                      onClick={handleCopyHostname}
-                      className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
-                      title="Salin hostname untuk Firebase Authorized Domains"
-                    >
-                      {domainCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{domainCopied ? 'Tersalin' : 'Salin Domain'}</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={handleCopyPrimaryDomain}
+                    className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                    title="Salin domain utama untuk Authorized Domains & OAuth"
+                  >
+                    {primaryCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{primaryCopied ? 'Tersalin' : `Salin ${PRIMARY_CUSTOM_DOMAIN}`}</span>
+                  </button>
                 </div>
               </div>
+              {!isPrimaryCustomActive && activeHostname && (
+                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
+                  <span className="truncate">
+                    Host pratinjau aktif: <span className="font-mono text-cyan-300">{activeHostname}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyHostname}
+                    className="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    {domainCopied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                    <span>{domainCopied ? 'Tersalin' : 'Salin Host'}</span>
+                  </button>
+                </div>
+              )}
               {!isLocalHost && (
                 <p className="text-[10px] text-slate-400 leading-snug">
-                  Pastikan domain <span className="font-mono text-slate-300">{activeHostname}</span> terdaftar di{' '}
-                  <strong className="text-slate-300">Firebase Authentication → Authorized domains</strong> jika login Google Drive memunculkan error otorisasi domain.
+                  Pastikan <span className="font-mono text-slate-300">{PRIMARY_CUSTOM_DOMAIN}</span>
+                  {!isPrimaryCustomActive && activeHostname ? (
+                    <> dan <span className="font-mono text-slate-300">{activeHostname}</span></>
+                  ) : null}{' '}
+                  terdaftar di <strong className="text-slate-300">Firebase Authentication → Authorized domains</strong> &{' '}
+                  <strong className="text-slate-300">Google Cloud OAuth Authorized JavaScript origins</strong> untuk login Google Drive.
                 </p>
               )}
             </div>
@@ -618,15 +657,24 @@ export default function ServerConnectionModal({
 
               {/* Input IP */}
               <div className="space-y-3 mb-5">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Alamat IP Server Laptop / Host
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Alamat Domain HTTPS atau IP Server Laptop
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setServerUrl(PRIMARY_CUSTOM_ORIGIN)}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                  >
+                    Pakai {PRIMARY_CUSTOM_DOMAIN}
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={serverUrl}
                     onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="Contoh: http://192.168.1.100:3000"
+                    placeholder={`Contoh: ${PRIMARY_CUSTOM_ORIGIN} atau http://192.168.1.100:3000`}
                     className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
                   />
                   <button
